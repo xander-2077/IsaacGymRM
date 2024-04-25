@@ -38,11 +38,12 @@ class Soccer:
         self.max_episode_length = self.args.episode_length  # maximum episode length
 
         # allocate buffers
+        # 每个agent配一个
         self.obs_buf = torch.zeros((self.args.num_envs*self.n_agents*2, self.num_obs), device=self.args.sim_device)
         self.state_buf = torch.zeros((self.args.num_envs*self.n_agents*2, self.num_obs), device=self.args.sim_device)
         self.reward_buf = torch.zeros(self.args.num_envs*self.n_agents*2, device=self.args.sim_device)
-        self.reset_buf = torch.ones(self.args.num_envs, device=self.args.sim_device, dtype=torch.long)
-        self.progress_buf = torch.zeros(self.args.num_envs, device=self.args.sim_device, dtype=torch.long)
+        self.reset_buf = torch.ones(self.args.num_envs, device=self.args.sim_device, dtype=torch.long)  # 标识需要重置的智能体或环境
+        self.progress_buf = torch.zeros(self.args.num_envs, device=self.args.sim_device, dtype=torch.long)  # 跟踪每个智能体的进度或时间步
 
         # observation and action space
         self.observation_space = [Box(low=-100, high=100, shape = ([self.num_obs]), dtype=np.float16) for _ in range(self.args.num_envs*self.n_agents)]
@@ -323,6 +324,7 @@ class Soccer:
         actions_flat[non_zero_rows] = 8
         actions_tensor = torch.zeros(self.args.num_envs * self.num_dof, device=self.args.sim_device)
         actions0 = self.actions[actions_flat]
+        translation = actions0[:, :2].unsqueeze(-1)
         translation = actions0[:, :2].unsqueeze(-1)
         rotated_translation = torch.matmul(rotation_matrix, translation).squeeze(-1)
         actions0[:,:2] = rotated_translation

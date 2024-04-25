@@ -3,7 +3,7 @@ from isaacgym import gymapi
 import numpy as np
 
 def main():
-    num_envs = 1
+    num_envs = 2
 
     # 初始化Isaac Gym
     gym = isaacgym.gymapi.acquire_gym()
@@ -64,7 +64,7 @@ def main():
     # ball_options.linear_damping = 0.77
     ball_asset = gym.load_asset(sim, asset_root, ball_asset_file, ball_options)
     ball_init_pose = gymapi.Transform()
-    ball_init_pose.p = gymapi.Vec3(0, 0, 2)
+    ball_init_pose.p = gymapi.Vec3(0, 0, 0.1)
 
     # define cartpole pose
     pose = gymapi.Transform()
@@ -72,7 +72,7 @@ def main():
 
     # define soccer dof properties
     dof_props = gym.get_asset_dof_properties(rm_asset)
-    # import pdb; pdb.set_trace()
+    print(dof_props)
     dof_props['driveMode'][:] = gymapi.DOF_MODE_VEL
     dof_props['stiffness'][:] = 10000.0
     dof_props['damping'][:] = 500.0
@@ -98,11 +98,15 @@ def main():
         for j in range(4):
             rm_handle = gym.create_actor(env, rm_asset, rm_pose[j], "rm"+"_"+str(j), i, 1, 0)
             gym.set_actor_dof_properties(env, rm_handle, dof_props)
+            wheel_joint_dof = gym.find_actor_dof_handle(env, rm_handle, "front_left_wheel_joint")
+            print(wheel_joint_dof)
+            # gym.set_dof_target_velocity(env, wheel_joint_dof, 5.0)
+
             # rm_handles[i].append(rm_handle)
             # dof_dict = gym.get_actor_dof_dict(env, rm_handle)
             # gym.set_actor_dof_position_target(env, rm_handle, dof_dict['rm_joint1'], 0.0)
 
-        field_handle = gym.create_actor(env, field_asset, gymapi.Transform(), "field", i, 1, 0)
+        gym.create_actor(env, field_asset, gymapi.Transform(), "field", i, 1, 0)
 
         ball_handle = gym.create_actor(env, ball_asset, ball_init_pose, "ball", i, 1, 0)
         # ball_handles.append(ball_handle)
@@ -118,6 +122,8 @@ def main():
 
     # 主循环
     while not gym.query_viewer_has_closed(viewer):
+    
+
 
         # 步进仿真
         gym.simulate(sim)

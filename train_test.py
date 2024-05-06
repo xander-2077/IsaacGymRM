@@ -1,4 +1,5 @@
 from env import Soccer
+from isaacgym import gymapi
 import torch
 import random
 import argparse
@@ -18,9 +19,9 @@ parser.add_argument('--compute_device_id', default=0, type=int)
 parser.add_argument(
     '--graphics_device_id', type=int, default=0, help='Graphics Device ID'
 )
-parser.add_argument('--num_envs', default=16, type=int)
+parser.add_argument('--num_env', default=16, type=int)
 parser.add_argument('--num_agent', type=int, default=2)
-parser.add_argument('--headless', default=True, action='store_true')
+parser.add_argument('--headless', default=False, action='store_true')
 
 parser.add_argument('--episode_length', type=int, default=500)
 
@@ -29,7 +30,8 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     env = Soccer(args)
-    # import pdb; pdb.set_trace()
+    action_r = torch.randn((args.num_env, args.num_agent * 4), device=args.sim_device) * 5
+    action_b = torch.zeros_like(action_r)
+    
     while True:
-        action = torch.randint(0, 9, (args.num_envs * 2, 3, 1), device=args.sim_device)
-        env.step([action])
+        env.step((action_r, action_b))

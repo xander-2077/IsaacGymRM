@@ -1,24 +1,17 @@
 import torch
 
 def quaternion_to_yaw(q):
-        if q.dim() == 2:
-            w = q[:, 0]
-            x = q[:, 1]
-            y = q[:, 2]
-            z = q[:, 3]
-            z_x = 2 * (x * z + w * y)
-            z_y = 2 * (y * z - w * x)
-            yaw = torch.atan2(z_y, z_x)
-            return yaw
-        elif q.dim() == 1: 
-            w = q[0]
-            x = q[1]
-            y = q[2]
-            z = q[3]
-            z_x = 2 * (x * z + w * y)
-            z_y = 2 * (y * z - w * x)
-            yaw = torch.atan2(z_y, z_x)
-            return yaw
+    quaternions = torch.as_tensor(q, dtype=torch.float32)
+    
+    x = quaternions[..., 0]
+    y = quaternions[..., 1]
+    z = quaternions[..., 2]
+    w = quaternions[..., 3]
+
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y**2 + z**2)
+    
+    return torch.atan2(siny_cosp, cosy_cosp)
 
 def local_pos(global_pos, robot_xy, rotation_matrix):
     '''

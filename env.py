@@ -6,12 +6,12 @@ from gymnasium.spaces import Box
 import torch
 
 from utils import *
-import time
 
 
 class Soccer:
     def __init__(self, args):
         self.args = args
+        self.num_agent = self.args.num_agent  # 单边的agent数量
 
         self.gym = gymapi.acquire_gym()
 
@@ -35,9 +35,6 @@ class Soccer:
             sim_params,
         )
 
-        # Some args before creating envs
-        self.num_agent = self.args.num_agent  # 单边的agent数量
-
         self.create_envs()
         if not self.args.headless:
             self.create_viewer()
@@ -50,30 +47,25 @@ class Soccer:
         self.root_tensor = gymtorch.wrap_tensor(self._root_tensor)
         self.saved_root_tensor = self.root_tensor.clone()
 
-        
-
         # DoF state tensor
         # Shape: (num_dofs, 2)
         self._dof_states = self.gym.acquire_dof_state_tensor(self.sim)
         self.dof_states = gymtorch.wrap_tensor(self._dof_states)
         self.saved_dof_states = self.dof_states.clone()
-        
 
-        self._rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        self.rb_states = gymtorch.wrap_tensor(self._rb_states)
-        self.saved_rb_states = self.rb_states.clone()
+        self.actor_index_in_sim_flat = torch.tensor(list(self.actor_index_in_sim.values()), dtype=torch.int32, device=self.args.sim_device).flatten()
 
-        self.actor_index_in_sim_flatten = torch.tensor(list(self.actor_index_in_sim.values()), dtype=torch.int32, device=self.args.sim_device).flatten()
-
-
+        # ---------------------------------------------------------------------------
         # Some args after creating envs
-        # Robot: Pos(2), Vel(2), Ori(1), AngularVel(1), Gripper(1) Ball: BallPos(2), BallVel(2)
-        self.num_info_per_robot = 7
-        self.num_obs = (
-            self.num_agent * 2 * self.num_info_per_robot + 8
-        )
+
+        # Robot: Pos(2), Vel(2), Ori(1), AngularVel(1), Gripper(1) 
+        # Ball: Pos(2), Vel(2)
+        # Goal: GoalPos(2), OpponentGoalPos(2)
+        self.num_info_per_robot = 7   # Ignore gripper for now
+        self.num_obs = self.num_agent * 2 * self.num_info_per_robot + 8
         self.num_obs_per_robot = (self.num_agent * 2 - 1) * self.num_info_per_robot + 8
-        self.num_act = self.num_agent * 4  # 控制四个轮子转速
+        self.num_act_per_robot = 4
+        self.num_act = self.num_agent * self.num_act_per_robot  # 控制四个轮子转速
 
         # Observation space
         self.observation_space = Box(
@@ -84,7 +76,7 @@ class Soccer:
         self.action_space = Box(
             -self.rm_wheel_vel_limit,
             self.rm_wheel_vel_limit,
-            (self.num_act * self.num_agent,),
+            (self.num_act,),
             dtype=np.float32,
         )
 
@@ -92,10 +84,12 @@ class Soccer:
         self.max_episode_length = self.args.episode_length
         self.episode_step = 0
 
+        # Some buffers
         self.state_buf = torch.zeros(
             (self.args.num_env * self.num_agent * 2, self.num_obs),
             device=self.args.sim_device,
         )
+        # TODO: Modify
         self.obs_buf = torch.zeros(
             (self.args.num_env * self.num_agent * 2, self.num_obs),
             device=self.args.sim_device,
@@ -112,19 +106,20 @@ class Soccer:
         
 
     def create_envs(self):
-        # add ground plane
+        # Add ground plane
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0, 0, 1)
         plane_params.distance = 0
         self.gym.add_ground(self.sim, plane_params)
 
-        # define environment space (for visualisation)
+        # Define environment space (for visualisation)
         lower = gymapi.Vec3(0, 0, 0)
         upper = gymapi.Vec3(12, 9, 0)
         num_per_row = int(np.sqrt(self.args.num_env))
 
-        # create field
         asset_root = 'assets'
+
+        # Create field
         field_asset_file = 'field.urdf'
         field_options = gymapi.AssetOptions()
         field_options.fix_base_link = True
@@ -133,67 +128,61 @@ class Soccer:
             self.sim, asset_root, field_asset_file, field_options
         )
 
-        # create robomaster asset
+        # Create robomaster asset
         rm_asset_file = 'RM_description/robot/robomaster.urdf'
         rm_options = gymapi.AssetOptions()
         rm_options.fix_base_link = False
-        rm_options.collapse_fixed_joints = True
+        rm_options.collapse_fixed_joints = False
         rm_asset = self.gym.load_asset(self.sim, asset_root, rm_asset_file, rm_options)
-        each_rm_num_dof = self.gym.get_asset_dof_count(rm_asset)
+        self.num_rm_dof = self.gym.get_asset_dof_count(rm_asset)
 
         rm_dof_props = self.gym.get_asset_dof_properties(rm_asset)
-        self.rm_gripper_limits = np.zeros((2, 3))  # lower, upper, max effort
-        self.rm_wheel_vel_limit = rm_dof_props[2]['velocity']  # max velocity
+        rm_gripper_limits = []
 
         for i in range(rm_dof_props.shape[0]):
             if rm_dof_props[i]['hasLimits']:
                 rm_dof_props[i]['driveMode'] = gymapi.DOF_MODE_EFFORT
                 rm_dof_props[i]['stiffness'] = 0.0
                 rm_dof_props[i]['damping'] = 0.0
-                # self.rm_gripper_limits[i][0] = rm_dof_props[i]['lower']
-                # self.rm_gripper_limits[i][1] = rm_dof_props[i]['upper']
-                # self.rm_gripper_limits[i][2] = rm_dof_props[i]['effort']
-            elif rm_dof_props[i]['hasLimits'] and rm_dof_props[i]['friction'] == 0.0:
+                rm_gripper_limits.append([rm_dof_props[i]['lower'], rm_dof_props[i]['upper'], rm_dof_props[i]['effort']])
+
+            elif rm_dof_props[i]['velocity'] < 1e2:
                 rm_dof_props[i]['driveMode'] = gymapi.DOF_MODE_VEL
                 rm_dof_props[i]['stiffness'] = 0.0
-                rm_dof_props[i]['damping'] = 500.0
+                rm_dof_props[i]['damping'] = 500.0  # need to tuned
+                self.rm_wheel_vel_limit = rm_dof_props[i]['velocity']  # max velocity
             else:
                 rm_dof_props[i]['driveMode'] = gymapi.DOF_MODE_NONE
+                rm_dof_props[i]['stiffness'] = 0.0
+                rm_dof_props[i]['damping'] = 0.0
 
-            rm_pose = [gymapi.Transform() for i in range(4)]
-            rm_pose[0].p = gymapi.Vec3(-2, -2, 0.1)
-            rm_pose[1].p = gymapi.Vec3(-2, 2, 0.1)
-            rm_pose[2].p = gymapi.Vec3(2, -2, 0.1)
-            rm_pose[3].p = gymapi.Vec3(2, 2, 0.1)
-            rm_pose[2].r = gymapi.Quat(0, 0, 1, 0)
-            rm_pose[3].r = gymapi.Quat(0, 0, 1, 0)
+        self.rm_gripper_limits = torch.tensor(rm_gripper_limits, device=self.args.sim_device)   # lower, upper, max effort
 
-        # create ball asset
+        rm_pose = [gymapi.Transform() for i in range(4)]
+        rm_pose[0].p = gymapi.Vec3(-2, -2, 0.01)
+        rm_pose[1].p = gymapi.Vec3(-2, 2, 0.01)
+        rm_pose[2].p = gymapi.Vec3(2, -2, 0.01)
+        rm_pose[3].p = gymapi.Vec3(2, 2, 0.01)
+        rm_pose[2].r = gymapi.Quat(0, 0, 1, 0)
+        rm_pose[3].r = gymapi.Quat(0, 0, 1, 0)
+
+        # Create ball asset
         ball_asset_file = "ball.urdf"
-        ball_options = gymapi.AssetOptions()
+        ball_options = gymapi.AssetOptions()   # need to tuned
         ball_options.angular_damping = 0.77
         ball_options.linear_damping = 0.77
         ball_asset = self.gym.load_asset(
             self.sim, asset_root, ball_asset_file, ball_options
         )
         ball_init_pose = gymapi.Transform()
-        ball_init_pose.p = gymapi.Vec3(0, 0, 0)
+        ball_init_pose.p = gymapi.Vec3(0, 0, 0.1)
 
-        pose = gymapi.Transform()
-        pose.p = gymapi.Vec3(0, 0, 0)
-
-        # define soccer dof properties
-        dof_props = self.gym.get_asset_dof_properties(rm_asset)
-        dof_props['driveMode'][:] = gymapi.DOF_MODE_VEL
-        dof_props['stiffness'][:] = 10000.0
-        dof_props['damping'][:] = 500.0
-
-        # generate environments
+        # Generate environments
         self.envs = []
-        self.rm_handles = {}
-        self.wheel_dof_handles = {}
-        self.ball_handles = {}
-        self.actor_index_in_sim = {}
+        self.rm_handles = {}    # {env_ptr: [rm_handle1, rm_handle2, rm_handle3, rm_handle4]}
+        self.ball_handles = {}  # {env_ptr: ball_handle}
+        self.actor_index_in_sim = {}    # {env_ptr: [rm1_index, rm2_index, rm3_index, rm4_index, ball_index]}
+        self.wheel_dof_handles = {}    # {env_ptr: [[front_left_wheel_dof, front_right_wheel_dof, rear_left_wheel_dof, rear_right_wheel_dof], ...]}
 
         for i in range(self.args.num_env):
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
@@ -202,16 +191,19 @@ class Soccer:
                 env_ptr, field_asset, gymapi.Transform(), "field", i, 0, 0
             )
 
+            # Create robomaster actors
             self.rm_handles[env_ptr] = []
-            self.wheel_dof_handles[env_ptr] = []
             self.actor_index_in_sim[env_ptr] = []
+            self.wheel_dof_handles[env_ptr] = []
 
             for j in range(self.num_agent * 2):
                 rm_handle = self.gym.create_actor(
                     env_ptr, rm_asset, rm_pose[j], "rm" + "_" + str(j), i, 2**(j+1), 0
                 )
-                self.gym.set_actor_dof_properties(env_ptr, rm_handle, dof_props)
+                self.gym.set_actor_dof_properties(env_ptr, rm_handle, rm_dof_props)
                 self.rm_handles[env_ptr].append(rm_handle)
+
+                self.actor_index_in_sim[env_ptr].append(self.gym.get_actor_index(env_ptr, rm_handle, gymapi.DOMAIN_SIM))
 
                 front_left_wheel_dof = self.gym.find_actor_dof_handle(
                     env_ptr, rm_handle, "front_left_wheel_joint"
@@ -235,8 +227,6 @@ class Soccer:
                     ]
                 )
 
-                self.actor_index_in_sim[env_ptr].append(self.gym.get_actor_index(env_ptr, rm_handle, gymapi.DOMAIN_SIM))
-
             ball_handle = self.gym.create_actor(
                 env_ptr, ball_asset, ball_init_pose, "ball", i, 1, 0
             )
@@ -247,19 +237,10 @@ class Soccer:
             self.envs.append(env_ptr)
 
         self.wheel_dof_handles_per_env = torch.tensor(
-            self.wheel_dof_handles[env_ptr]
-        ).reshape(
-            self.num_agent * 2 * 4,
-        )
-        # # tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
+            self.wheel_dof_handles[self.envs[0]]
+        ).reshape(self.num_agent * 2 * 4, )   # tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
 
-
-        self.env_dof_count = self.gym.get_env_dof_count(self.envs[0])
-
-        
-
-        # # Actor index
-        # self.gym.get_actor_index(env, actor_handle, gymapi.DOMAIN_SIM)
+        self.num_dof_per_env = self.gym.get_env_dof_count(self.envs[0])
             
 
     def create_viewer(self):
@@ -274,15 +255,13 @@ class Soccer:
 
     def get_obs_global(self):
         '''
-        全局观测
+        Global Observation
         Robot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1) * 4
         Ball: BallPos(2), BallVel(2)
         Goal: GoalPos(2), OpponentGoalPos(2)
         '''
-        num_global_obs = self.num_obs
-        num_global_obs = 36
-        num_info_per_robot = self.num_info_per_robot
-        num_info_per_robot = 7
+        num_global_obs = self.num_obs  # 36
+        num_info_per_robot = self.num_info_per_robot  # 7
 
         # 每个env的观测值顺序为: Robot1, Robot2, Robot3, Robot4, Ball, Goal, OpponentGoal
         obs = torch.zeros((self.args.num_env, num_global_obs), device=self.args.sim_device)
@@ -290,18 +269,17 @@ class Soccer:
         # self.root_tensor: (num_env * num_actor, 13)
         self.root_positions = self.root_tensor[:, 0:3]
         self.root_linvels = self.root_tensor[:, 7:10]
-        self.root_orientations = self.root_tensor[:, 3:7]
+        self.root_orientations = self.root_tensor[:, 3:7]   # xyzw
         self.root_angvels = self.root_tensor[:, 10:13]
 
         for i, env_ptr in enumerate(self.envs):
             for j, actor_index in enumerate(self.actor_index_in_sim[env_ptr]):
-                # Robot
                 if j < len(self.actor_index_in_sim[env_ptr]) - 1:
                     # Robot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
                     obs[i, j * num_info_per_robot] = j
                     obs[i, j * num_info_per_robot + 1 : j * num_info_per_robot + 3] = self.root_positions[actor_index][:-1]
                     obs[i, j * num_info_per_robot + 3 : j * num_info_per_robot + 5] = self.root_linvels[actor_index][:-1]
-                    obs[i, j * num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index])  # TODO: transform it to yaw
+                    obs[i, j * num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index])
                     obs[i, j * num_info_per_robot + 6] = self.root_angvels[actor_index][-1]
                 else:
                     # Ball: BallPos(2), BallVel(2)
@@ -391,14 +369,6 @@ class Soccer:
         '''
         self.num_obs_per_robot
 
-        
-
-
-
-
-
-
-
 
 
     def get_reward(self):
@@ -406,8 +376,10 @@ class Soccer:
 
 
     def apply_actions(self, actions):
-        
-        actions_target_tensor = torch.zeros((self.args.num_env, self.env_dof_count), device=self.args.sim_device)
+        '''
+        控制的变量actions_target_tensor维度是2, 很奇怪为什么gym.set_dof_velocity_target_tensor支持这样的参数输入
+        '''
+        actions_target_tensor = torch.zeros((self.args.num_env, self.num_dof_per_env), device=self.args.sim_device)
 
         actions_target_tensor[:, self.wheel_dof_handles_per_env] = actions
         
@@ -423,23 +395,12 @@ class Soccer:
         '''
         self.apply_actions(actions)
 
-        
-
-        # u_wheel, u_gripper = self.actions[:, :-1], self.actions[:, -1]
-        # self._vel_control[:, self.control_idx[2:]] = 3*self.mecanum_tranform(u_wheel)
-        # u_fingers = torch.ones_like(self._vel_control[:, :2])
-        # u_fingers[:, 0] = torch.where(u_gripper >= 0.0, -1, 1)
-        # u_fingers[:, 1] = torch.where(u_gripper >= 0.0, 1, -1)
-        # self._vel_control[:, self.control_idx[:2]] = u_fingers.clone()
-
-
         # Simulate one step
         self.simulate()
         self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
         self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
 
-
-        if not self.episode_step:
+        if self.episode_step > 2:
             self.saved_root_tensor = self.root_tensor.clone()
             self.saved_dof_states = self.dof_states.clone()
 
@@ -462,8 +423,8 @@ class Soccer:
         #     obs = self.reset()
 
         self.episode_step += 1
-        # return obs, reward, done, {}
-        return obs_global, reward, False, {}
+        
+        return obs_global, reward, False, {}  # return obs, reward, done, {}
 
 
     def reset(self):
@@ -473,11 +434,11 @@ class Soccer:
         '''
         # FIXME: It seems that the following code will cause the error: "RuntimeError: CUDA error: an illegal memory access was encountered"
         # self.gym.set_dof_state_tensor_indexed(
-        #     self.sim, gymtorch.unwrap_tensor(self.saved_dof_states), gymtorch.unwrap_tensor(self.actor_index_in_sim_flatten), len(self.actor_index_in_sim_flatten)
+        #     self.sim, gymtorch.unwrap_tensor(self.saved_dof_states), gymtorch.unwrap_tensor(self.actor_index_in_sim_flat), len(self.actor_index_in_sim_flat)
         # )
         
         self.gym.set_actor_root_state_tensor_indexed(
-            self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(self.actor_index_in_sim_flatten), len(self.actor_index_in_sim_flatten)
+            self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(self.actor_index_in_sim_flat), len(self.actor_index_in_sim_flat)
         )
 
         self.simulate()

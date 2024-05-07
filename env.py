@@ -67,10 +67,11 @@ class Soccer:
 
         # Some args after creating envs
         # Robot: Pos(2), Vel(2), Ori(1), AngularVel(1), Gripper(1) Ball: BallPos(2), BallVel(2)
-        self.num_obs_per_robot = 7
+        self.num_info_per_robot = 7
         self.num_obs = (
-            self.num_agent * 2 * self.num_obs_per_robot + 8
-        ) 
+            self.num_agent * 2 * self.num_info_per_robot + 8
+        )
+        self.num_obs_per_robot = (self.num_agent * 2 - 1) * self.num_info_per_robot + 8
         self.num_act = self.num_agent * 4  # 控制四个轮子转速
 
         # Observation space
@@ -279,8 +280,8 @@ class Soccer:
         '''
         num_global_obs = self.num_obs
         num_global_obs = 36
-        num_obs_per_robot = self.num_obs_per_robot
-        num_obs_per_robot = 7
+        num_info_per_robot = self.num_info_per_robot
+        num_info_per_robot = 7
 
         # 每个env的观测值顺序为: Robot1, Robot2, Robot3, Robot4, Ball, Goal, OpponentGoal
         obs = torch.zeros((self.args.num_env, num_global_obs), device=self.args.sim_device)
@@ -296,19 +297,19 @@ class Soccer:
                 # Robot
                 if j < len(self.actor_index_in_sim[env_ptr]) - 1:
                     # Robot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
-                    obs[i, j * num_obs_per_robot] = j
-                    obs[i, j * num_obs_per_robot + 1 : j * num_obs_per_robot + 3] = self.root_positions[actor_index][:-1]
-                    obs[i, j * num_obs_per_robot + 3 : j * num_obs_per_robot + 5] = self.root_linvels[actor_index][:-1]
-                    obs[i, j * num_obs_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index])  # TODO: transform it to yaw
-                    obs[i, j * num_obs_per_robot + 6] = self.root_angvels[actor_index][-1]
+                    obs[i, j * num_info_per_robot] = j
+                    obs[i, j * num_info_per_robot + 1 : j * num_info_per_robot + 3] = self.root_positions[actor_index][:-1]
+                    obs[i, j * num_info_per_robot + 3 : j * num_info_per_robot + 5] = self.root_linvels[actor_index][:-1]
+                    obs[i, j * num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index])  # TODO: transform it to yaw
+                    obs[i, j * num_info_per_robot + 6] = self.root_angvels[actor_index][-1]
                 else:
                     # Ball: BallPos(2), BallVel(2)
-                    obs[i, j * num_obs_per_robot : j * num_obs_per_robot + 2] = self.root_positions[actor_index][:-1]
-                    obs[i, j * num_obs_per_robot + 2 : j * num_obs_per_robot + 4] = self.root_linvels[actor_index][:-1]
+                    obs[i, j * num_info_per_robot : j * num_info_per_robot + 2] = self.root_positions[actor_index][:-1]
+                    obs[i, j * num_info_per_robot + 2 : j * num_info_per_robot + 4] = self.root_linvels[actor_index][:-1]
 
             # Goal: GoalPos(2), OpponentGoalPos(2)
-            obs[i, j * num_obs_per_robot + 4 : j * num_obs_per_robot + 6] = torch.tensor([4.5, 0.0])
-            obs[i, j * num_obs_per_robot + 6 : j * num_obs_per_robot + 8] = torch.tensor([-4.5, 0.0])
+            obs[i, j * num_info_per_robot + 4 : j * num_info_per_robot + 6] = torch.tensor([4.5, 0.0])
+            obs[i, j * num_info_per_robot + 6 : j * num_info_per_robot + 8] = torch.tensor([-4.5, 0.0])
 
         return obs
 
@@ -324,13 +325,13 @@ class Soccer:
         '''
         obs_global = self.get_obs_global()
         num_envs = obs_global.shape[0]
-        num_obs_per_robot = self.num_obs_per_robot
-        local_obs_dim = num_obs_per_robot * 5 + 4 + 4  # 1 robot + 3 opponents + ball + 2 goals
+        num_info_per_robot = self.num_info_per_robot
+        local_obs_dim = num_info_per_robot * 5 + 4 + 4  # 1 robot + 3 opponents + ball + 2 goals
         local_obs = torch.zeros((num_envs, local_obs_dim), device=self.args.sim_device)
 
         for i in range(num_envs):
             # 获取当前机器人的全局状态
-            base_idx = rm_id * num_obs_per_robot
+            base_idx = rm_id * num_info_per_robot
             robot_pos = obs_global[i, base_idx + 1:base_idx + 3]
             robot_ori = obs_global[i, base_idx + 5]
             robot_cos = torch.cos(-robot_ori)
@@ -338,13 +339,13 @@ class Soccer:
             rotation_matrix = torch.tensor([[robot_cos, -robot_sin], [robot_sin, robot_cos]])
 
             # 自身状态（不变）
-            local_obs[i, :num_obs_per_robot] = obs_global[i, base_idx:base_idx + num_obs_per_robot]
+            local_obs[i, :num_info_per_robot] = obs_global[i, base_idx:base_idx + num_info_per_robot]
 
             # 其他机器人的状态
-            local_idx = num_obs_per_robot
+            local_idx = num_info_per_robot
             for j in range(4):
                 if j != rm_id:
-                    opp_base_idx = j * num_obs_per_robot
+                    opp_base_idx = j * num_info_per_robot
                     opp_pos = obs_global[i, opp_base_idx + 1:opp_base_idx + 3]
                     opp_vel = obs_global[i, opp_base_idx + 3:opp_base_idx + 5]
                     # 转换为相对位置和速度
@@ -356,10 +357,10 @@ class Soccer:
                     local_obs[i, local_idx + 2:local_idx + 4] = relative_vel
                     local_obs[i, local_idx + 4:local_idx + 6] = obs_global[i, opp_base_idx + 5:opp_base_idx + 7]
                     local_obs[i, local_idx + 6] = obs_global[i, opp_base_idx]
-                    local_idx += num_obs_per_robot
+                    local_idx += num_info_per_robot
 
             # 球的状态
-            ball_idx = 4 * num_obs_per_robot
+            ball_idx = 4 * num_info_per_robot
             ball_pos = obs_global[i, ball_idx + 7:ball_idx + 9]
             ball_vel = obs_global[i, ball_idx + 9:ball_idx + 11]
             relative_ball_pos = ball_pos - robot_pos
@@ -379,16 +380,38 @@ class Soccer:
         return local_obs
 
 
+    def get_obs_local(self, obs_global, rm_id):
+        '''
+        机器人局部观测，以机器人为中心的相对坐标
+        Teammeta: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
+        OpponentRobot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1) * 2
+        Ball: BallPos(2), BallVel(2)
+        Goal: GoalPos(2), OpponentGoalPos(2)
+        '''
+        self.num_obs_per_robot
+
+        
+
+
+
+
+
+
+
+
+
     def get_reward(self):
         pass
 
 
     def apply_actions(self, actions):
-        pass
+        
+        actions_target_tensor = torch.zeros((self.args.num_env, self.env_dof_count), device=self.args.sim_device)
 
-        dof_velocity_tensor = torch.zeros((self.args.num_env, self.env_dof_count), device=self.args.sim_device)
-        dof_velocity_tensor[:, self.wheel_dof_handles_per_env[:4]] = 10.0
-        self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(dof_velocity_tensor))
+        actions_target_tensor[:, self.wheel_dof_handles_per_env] = actions
+        
+        self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(actions_target_tensor))
+        
 
 
     def step(self, actions):
@@ -397,11 +420,7 @@ class Soccer:
         action_r/action_b(Tensor): (num_env, num_agent * 4) 
         tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
         '''
-        actions_target_tensor = torch.zeros((self.args.num_env, self.env_dof_count), device=self.args.sim_device)
-
-        actions_target_tensor[:, self.wheel_dof_handles_per_env] = actions
-        
-        self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(actions_target_tensor))
+        self.apply_actions(actions)
 
         
 
@@ -459,8 +478,6 @@ class Soccer:
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(self.actor_index_in_sim_flatten), len(self.actor_index_in_sim_flatten)
         )
-
-        
 
         self.simulate()
         self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor

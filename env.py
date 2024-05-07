@@ -39,7 +39,8 @@ class Soccer:
         self.num_agent = self.args.num_agent  # 单边的agent数量
 
         self.create_envs()
-        self.create_viewer()
+        if not self.args.headless:
+            self.create_viewer()
 
         self.gym.prepare_sim(self.sim)
 

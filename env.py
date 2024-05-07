@@ -6,6 +6,7 @@ from gymnasium.spaces import Box
 import torch
 
 from utils import *
+import time
 
 
 class Soccer:
@@ -24,8 +25,8 @@ class Soccer:
         sim_params.physx.use_gpu = True
         sim_params.physx.num_position_iterations = 8  # default: 4
         sim_params.physx.num_velocity_iterations = 1  # default: 1
-        sim_params.physx.rest_offset = 0.0
-        sim_params.physx.contact_offset = 0.002
+        sim_params.physx.rest_offset = 0.001
+        sim_params.physx.contact_offset = 0.02
 
         self.sim = self.gym.create_sim(
             self.args.compute_device_id,
@@ -41,6 +42,28 @@ class Soccer:
         self.create_viewer()
 
         self.gym.prepare_sim(self.sim)
+
+        # Actor root state tensor
+        # Shape: (num_env * num_actor, 13)
+        self._root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        self.root_tensor = gymtorch.wrap_tensor(self._root_tensor)
+        self.saved_root_tensor = self.root_tensor.clone()
+
+        
+
+        # DoF state tensor
+        # Shape: (num_dofs, 2)
+        self._dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        self.dof_states = gymtorch.wrap_tensor(self._dof_states)
+        self.saved_dof_states = self.dof_states.clone()
+        
+
+        self._rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.rb_states = gymtorch.wrap_tensor(self._rb_states)
+        self.saved_rb_states = self.rb_states.clone()
+
+        self.actor_index_in_sim_flatten = torch.tensor(list(self.actor_index_in_sim.values()), dtype=torch.int32, device=self.args.sim_device).flatten()
+
 
         # Some args after creating envs
         # Robot: Pos(2), Vel(2), Ori(1), AngularVel(1), Gripper(1) Ball: BallPos(2), BallVel(2)
@@ -84,7 +107,7 @@ class Soccer:
         self.progress_buf = torch.zeros(
             self.args.num_env, device=self.args.sim_device, dtype=torch.long
         )
-
+        
 
     def create_envs(self):
         # add ground plane
@@ -152,10 +175,10 @@ class Soccer:
             self.sim, asset_root, ball_asset_file, ball_options
         )
         ball_init_pose = gymapi.Transform()
-        ball_init_pose.p = gymapi.Vec3(0, 0, 0.2)
+        ball_init_pose.p = gymapi.Vec3(0, 0, 0)
 
         pose = gymapi.Transform()
-        pose.p = gymapi.Vec3(0, 0, 0.01)
+        pose.p = gymapi.Vec3(0, 0, 0)
 
         # define soccer dof properties
         dof_props = self.gym.get_asset_dof_properties(rm_asset)
@@ -221,30 +244,20 @@ class Soccer:
 
             self.envs.append(env_ptr)
 
-            self.wheel_dof_handles_per_env = torch.tensor(
-                self.wheel_dof_handles[env_ptr]
-            ).reshape(
-                self.num_agent * 2 * 4,
-            )
-            # # tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
+        self.wheel_dof_handles_per_env = torch.tensor(
+            self.wheel_dof_handles[env_ptr]
+        ).reshape(
+            self.num_agent * 2 * 4,
+        )
+        # # tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
 
 
-            self.env_dof_count = self.gym.get_env_dof_count(self.envs[0])
+        self.env_dof_count = self.gym.get_env_dof_count(self.envs[0])
 
-            # Actor root state tensor
-            # Shape: (num_env * num_actor, 13)
-            self._root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-            self.root_tensor = gymtorch.wrap_tensor(self._root_tensor)
-            self.saved_root_tensor = self.root_tensor.clone()
+        
 
-            # Shape: (num_dofs, 2)
-            # DoF state tensor
-            self._dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-            self.dof_states = gymtorch.wrap_tensor(self._dof_states)
-            self.saved_dof_states = self.dof_states.clone()
-
-            # # Actor index
-            # self.gym.get_actor_index(env, actor_handle, gymapi.DOMAIN_SIM)
+        # # Actor index
+        # self.gym.get_actor_index(env, actor_handle, gymapi.DOMAIN_SIM)
             
 
     def create_viewer(self):
@@ -384,14 +397,13 @@ class Soccer:
         action_r/action_b(Tensor): (num_env, num_agent * 4) 
         tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
         '''
-        actions = torch.cat((actions[0], actions[1]), dim=1)
-
         actions_target_tensor = torch.zeros((self.args.num_env, self.env_dof_count), device=self.args.sim_device)
 
         actions_target_tensor[:, self.wheel_dof_handles_per_env] = actions
         
         self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(actions_target_tensor))
 
+        
 
         # u_wheel, u_gripper = self.actions[:, :-1], self.actions[:, -1]
         # self._vel_control[:, self.control_idx[2:]] = 3*self.mecanum_tranform(u_wheel)
@@ -399,18 +411,22 @@ class Soccer:
         # u_fingers[:, 0] = torch.where(u_gripper >= 0.0, -1, 1)
         # u_fingers[:, 1] = torch.where(u_gripper >= 0.0, 1, -1)
         # self._vel_control[:, self.control_idx[:2]] = u_fingers.clone()
-        
+
 
         # Simulate one step
         self.simulate()
         self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
         self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
 
-        obs_global = self.get_obs_global()
+
+        if not self.episode_step:
+            self.saved_root_tensor = self.root_tensor.clone()
+            self.saved_dof_states = self.dof_states.clone()
 
         if not self.args.headless:
             self.render()
 
+        obs_global = self.get_obs_global()
 
         # Compute reward and check if episode is done
         # reward, done = self.compute_reward_and_done()
@@ -425,24 +441,37 @@ class Soccer:
         # if done:
         #     obs = self.reset()
 
+        self.episode_step += 1
         # return obs, reward, done, {}
-        return None
+        return obs_global, reward, False, {}
 
 
     def reset(self):
-        root_tensor = gymtorch.wrap_tensor(_root_tensor)
-        saved_root_tensor = root_tensor.clone()
-        if self.episode_step % 100 == 0:
-            self.gym.set_actor_root_state_tensor(
-                self.sim, gymtorch.unwrap_tensor(saved_root_tensor)
-            )
+        '''
+        TODO: Add annotation
 
-        actor_indices = torch.tensor([0, 17, 42], dtype=torch.int32, device="cuda:0")
+        '''
+        # FIXME: It seems that the following code will cause the error: "RuntimeError: CUDA error: an illegal memory access was encountered"
+        # self.gym.set_dof_state_tensor_indexed(
+        #     self.sim, gymtorch.unwrap_tensor(self.saved_dof_states), gymtorch.unwrap_tensor(self.actor_index_in_sim_flatten), len(self.actor_index_in_sim_flatten)
+        # )
+        
         self.gym.set_actor_root_state_tensor_indexed(
-            self.sim, _root_states, gymtorch.unwrap_tensor(actor_indices), 3
+            self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(self.actor_index_in_sim_flatten), len(self.actor_index_in_sim_flatten)
         )
 
-        return None
+        
+
+        self.simulate()
+        self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
+        self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
+
+        obs_global = self.get_obs_global()
+
+        if not self.args.headless:
+            self.render()
+
+        return obs_global
 
 
     def simulate(self):

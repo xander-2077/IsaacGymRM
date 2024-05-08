@@ -371,8 +371,18 @@ class Soccer:
 
 
 
-    def get_reward(self):
-        pass
+    def get_reward(self, obs):
+        '''
+        TODO: annotation
+        '''
+        # 进球/失球 reward
+
+
+
+
+
+
+
 
 
     def apply_actions(self, actions):
@@ -409,22 +419,14 @@ class Soccer:
 
         obs_global = self.get_obs_global()
 
-        # Compute reward and check if episode is done
-        # reward, done = self.compute_reward_and_done()
-        reward = 0
+        # # Compute reward and check if episode is done
+        # reward, terminated = self.get_reward(obs_global)
 
-        # # Increment episode length counter
-        # self.episode_length += 1
-        # if self.episode_length >= self.max_episode_length:
-        #     done = True
-
-        # # Optionally reset if done
-        # if done:
-        #     obs = self.reset()
-
-        self.episode_step += 1
+        # self.episode_step += 1
+        # if self.episode_step >= self.max_episode_length:
+        #     return obs_global, reward, False, True, {}
         
-        return obs_global, reward, False, {}  # return obs, reward, done, {}
+        # return obs_global, reward, terminated, False, {}
 
 
     def reset(self):

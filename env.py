@@ -45,13 +45,11 @@ class Soccer:
         # Shape: (num_env * num_actor, 13)
         self._root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.root_tensor = gymtorch.wrap_tensor(self._root_tensor)
-        self.saved_root_tensor = self.root_tensor.clone()
 
         # DoF state tensor
         # Shape: (num_dofs, 2)
         self._dof_states = self.gym.acquire_dof_state_tensor(self.sim)
         self.dof_states = gymtorch.wrap_tensor(self._dof_states)
-        self.saved_dof_states = self.dof_states.clone()
 
         self.actor_index_in_sim_flat = torch.tensor(list(self.actor_index_in_sim.values()), dtype=torch.int32, device=self.args.sim_device).flatten()
 
@@ -279,7 +277,7 @@ class Soccer:
                     obs[i, j * num_info_per_robot] = j
                     obs[i, j * num_info_per_robot + 1 : j * num_info_per_robot + 3] = self.root_positions[actor_index][:-1]
                     obs[i, j * num_info_per_robot + 3 : j * num_info_per_robot + 5] = self.root_linvels[actor_index][:-1]
-                    obs[i, j * num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index])
+                    obs[i, j * num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index], self.args.sim_device)
                     obs[i, j * num_info_per_robot + 6] = self.root_angvels[actor_index][-1]
                 else:
                     # Ball: BallPos(2), BallVel(2)
@@ -385,6 +383,7 @@ class Soccer:
 
 
 
+
     def apply_actions(self, actions):
         '''
         控制的变量actions_target_tensor维度是2, 很奇怪为什么gym.set_dof_velocity_target_tensor支持这样的参数输入
@@ -403,6 +402,7 @@ class Soccer:
         action_r/action_b(Tensor): (num_env, num_agent * 4) 
         tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
         '''
+        actions = mecanum_tranform(actions, self.args.sim_device)
         self.apply_actions(actions)
 
         # Simulate one step
@@ -410,7 +410,7 @@ class Soccer:
         self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
         self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
 
-        if self.episode_step > 2:
+        if self.episode_step == 2:
             self.saved_root_tensor = self.root_tensor.clone()
             self.saved_dof_states = self.dof_states.clone()
 
@@ -422,7 +422,7 @@ class Soccer:
         # # Compute reward and check if episode is done
         # reward, terminated = self.get_reward(obs_global)
 
-        # self.episode_step += 1
+        self.episode_step += 1
         # if self.episode_step >= self.max_episode_length:
         #     return obs_global, reward, False, True, {}
         
@@ -438,7 +438,7 @@ class Soccer:
         # self.gym.set_dof_state_tensor_indexed(
         #     self.sim, gymtorch.unwrap_tensor(self.saved_dof_states), gymtorch.unwrap_tensor(self.actor_index_in_sim_flat), len(self.actor_index_in_sim_flat)
         # )
-        
+
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(self.actor_index_in_sim_flat), len(self.actor_index_in_sim_flat)
         )

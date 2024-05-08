@@ -30,14 +30,14 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     env = Soccer(args)
-    action_r = torch.randn((args.num_env, args.num_agent * 4), device=args.sim_device) * 5
-    action_b = torch.zeros_like(action_r)
     step = 0
-    action = torch.randn((args.num_env, args.num_agent * 4 * 2), device=args.sim_device) * 5
 
-    
+    # action_r = torch.randn((args.num_env, args.num_agent * 4), device=args.sim_device) * 5
+    # action_b = torch.zeros_like(action_r)
+    # action = torch.randn((args.num_env, args.num_agent * 4 * 2), device=args.sim_device) * 5
+
     while True:
-        # env.step((action_r, action_b))
+        action = torch.randn((args.num_env, args.num_agent * 4 * 2), device=args.sim_device) * 5
         env.step(action)
         step += 1
         if step % 100 == 0:

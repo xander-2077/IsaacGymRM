@@ -402,7 +402,7 @@ class Soccer:
         action_r/action_b(Tensor): (num_env, num_agent * 4) 
         tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
         '''
-        actions = mecanum_tranform(actions, self.args.sim_device)
+        actions = mecanum_tranform(actions, self.args.num_env, self.args.sim_device)
         self.apply_actions(actions)
 
         # Simulate one step

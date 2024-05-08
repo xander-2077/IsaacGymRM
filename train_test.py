@@ -36,9 +36,24 @@ if __name__ == '__main__':
     # action_b = torch.zeros_like(action_r)
     # action = torch.randn((args.num_env, args.num_agent * 4 * 2), device=args.sim_device) * 5
 
+    # while True:
+    #     action = torch.randn((args.num_env, args.num_agent * 4 * 2), device=args.sim_device) * 5
+    #     env.step(action)
+    #     step += 1
+    #     if step % 100 == 0:
+    #         env.reset()
+
+
+    # mecanum test
+    action = torch.randn((args.num_env, args.num_agent * 2, 3), device=args.sim_device) * 10
+    action[..., 0] = 0
+    action[..., 1] = 0
+    action[..., 2] = 2
+
     while True:
-        action = torch.randn((args.num_env, args.num_agent * 4 * 2), device=args.sim_device) * 5
         env.step(action)
         step += 1
         if step % 100 == 0:
             env.reset()
+
+    

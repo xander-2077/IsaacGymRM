@@ -5,7 +5,7 @@ import math
 from gymnasium.spaces import Box
 import torch
 
-from isaacgymrm.utils.utils import *
+from utils.utils import *
 
 
 class Soccer:
@@ -115,7 +115,7 @@ class Soccer:
         upper = gymapi.Vec3(12, 9, 0)
         num_per_row = int(np.sqrt(self.args.num_env))
 
-        asset_root = 'assets'
+        asset_root = self.args.asset_root
 
         # Create field
         field_asset_file = 'field.urdf'
@@ -242,7 +242,6 @@ class Soccer:
             
 
     def create_viewer(self):
-        # reate viewer for debugging (looking at the center of environment)
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
         cam_pos = gymapi.Vec3(10, 0.0, 5)
         cam_target = gymapi.Vec3(-1, 0, 0)

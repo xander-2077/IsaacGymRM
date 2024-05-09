@@ -5,7 +5,7 @@ import math
 from gymnasium.spaces import Box
 import torch
 
-from utils import *
+from isaacgymrm.utils.utils import *
 
 
 class Soccer:
@@ -256,12 +256,12 @@ class Soccer:
         Global Observation
         Robot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1) * 4
         Ball: BallPos(2), BallVel(2)
-        Goal: GoalPos(2), OpponentGoalPos(2)
+        Goal: GoalRedPos(2), GoalBluePos(2)
         '''
         num_global_obs = self.num_obs  # 36
         num_info_per_robot = self.num_info_per_robot  # 7
 
-        # 每个env的观测值顺序为: Robot1, Robot2, Robot3, Robot4, Ball, Goal, OpponentGoal
+        # 每个env的观测值顺序为: Robot1, Robot2, Robot3, Robot4, Ball, GoalRed, GoalBlue
         obs = torch.zeros((self.args.num_env, num_global_obs), device=self.args.sim_device)
 
         # self.root_tensor: (num_env * num_actor, 13)
@@ -284,11 +284,21 @@ class Soccer:
                     obs[i, j * num_info_per_robot : j * num_info_per_robot + 2] = self.root_positions[actor_index][:-1]
                     obs[i, j * num_info_per_robot + 2 : j * num_info_per_robot + 4] = self.root_linvels[actor_index][:-1]
 
-            # Goal: GoalPos(2), OpponentGoalPos(2)
-            obs[i, j * num_info_per_robot + 4 : j * num_info_per_robot + 6] = torch.tensor([4.5, 0.0])
-            obs[i, j * num_info_per_robot + 6 : j * num_info_per_robot + 8] = torch.tensor([-4.5, 0.0])
+            # Goal: GoalRed(2), GoalBlue(2)
+            obs[i, j * num_info_per_robot + 4 : j * num_info_per_robot + 6] = torch.tensor([-4.5, 0.0])
+            obs[i, j * num_info_per_robot + 6 : j * num_info_per_robot + 8] = torch.tensor([4.5, 0.0])
 
-        return obs
+        obs_dict = {}
+        obs_dict['r0'] = obs[..., :num_info_per_robot]
+        obs_dict['r1'] = obs[..., num_info_per_robot:2*num_info_per_robot]
+        obs_dict['b0'] = obs[..., 2*num_info_per_robot:3*num_info_per_robot]
+        obs_dict['b1'] = obs[..., 3*num_info_per_robot:4*num_info_per_robot]
+        obs_dict['ball_pos'] = obs[..., 4*num_info_per_robot:4*num_info_per_robot+2]
+        obs_dict['ball_vel'] = obs[..., 4*num_info_per_robot+2:4*num_info_per_robot+4]
+        obs_dict['goal_r'] = obs[..., 4*num_info_per_robot+4:4*num_info_per_robot+6]
+        obs_dict['goal_b'] = obs[..., 4*num_info_per_robot+6:4*num_info_per_robot+8]
+
+        return obs, obs_dict
 
 
     def get_obs_local(self, rm_id):
@@ -369,16 +379,46 @@ class Soccer:
 
 
 
-    def get_reward(self, obs):
+    def get_reward(self, obs_global_dict, obs_r0, obs_r1, obs_b0, obs_b1):
         '''
         TODO: annotation
         '''
-        # 进球/失球 reward
+        reward_r = 0
+        reward_b = 0
+        terminated = False
+
+        # Scoring or Conceding
+        if obs_global_dict['ball_pos'][0] < obs_global_dict['goal_r'][0]:
+            reward_r = -1 * self.args.reward_conceding
+            reward_b = 1 * self.args.reward_scoring
+            return reward_r, reward_b, True
+        elif obs_global_dict['ball_pos'][0] > obs_global_dict['goal_b'][0]:
+            reward_r = 1 * self.args.reward_scoring
+            reward_b = -1 * self.args.reward_conceding
+            return reward_r, reward_b, True
+
+        # Velocity to ball
+        for robot in ['r0', 'r1', 'b0', 'b1']:
+            dir_vec = obs_global_dict['ball_pos'] - obs_global_dict[robot][1:3]
+            norm_dir_vec = dir_vec / dir_vec.norm()
+            vel_towards_ball = torch.dot(obs_global_dict[robot][3:5], norm_dir_vec).item()
+            if robot in ['r0', 'r1']:
+                reward_r += vel_towards_ball * self.args.reward_vel_to_ball
+            else:
+                reward_b += vel_towards_ball * self.args.reward_vel_to_ball
+
+        # Velocity forward
+        reward_r += (obs_global_dict['r0'][3] + obs_global_dict['r1'][3]) * self.args.reward_vel
+        reward_b += - (obs_global_dict['b0'][3] + obs_global_dict['b1'][3]) * self.args.reward_vel
+
+        # TODO:
 
 
 
+        
 
 
+        return reward_r, reward_b, terminated
 
 
 
@@ -417,7 +457,7 @@ class Soccer:
         if not self.args.headless:
             self.render()
 
-        obs_global = self.get_obs_global()
+        obs_global, obs_global_dict = self.get_obs_global()
 
         # # Compute reward and check if episode is done
         # reward, terminated = self.get_reward(obs_global)

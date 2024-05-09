@@ -79,10 +79,10 @@ class Soccer:
         )
 
         # Args about episode info
-        self.max_episode_length = self.args.episode_length
+        self.max_episode_length = self.args.max_episode_length
         self.episode_step = 0
 
-        # Some buffers
+        # TODO: Some buffers but donot know how to use
         self.state_buf = torch.zeros(
             (self.args.num_env * self.num_agent * 2, self.num_obs),
             device=self.args.sim_device,
@@ -410,7 +410,7 @@ class Soccer:
         reward_r += (obs_global_dict['r0'][3] + obs_global_dict['r1'][3]) * self.args.reward_vel
         reward_b += - (obs_global_dict['b0'][3] + obs_global_dict['b1'][3]) * self.args.reward_vel
 
-        # TODO:
+        # TODO: add more rewards
 
 
 

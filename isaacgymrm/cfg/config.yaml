@@ -15,7 +15,7 @@ cuda_deterministic: True
 
 num_env: 16
 num_agent: 2
-episode_length: 500
+max_episode_length: 5000
 
 reward_scoring: 1000
 reward_conceding: 1000

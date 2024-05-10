@@ -22,7 +22,7 @@ reward_conceding: 1000
 reward_vel_to_ball: 0.05
 reward_vel: 0.1
 
-asset_root: /home/xander/Codes/IsaacGymRM/assets
+asset_root: /home/xander/Codes/IsaacGymRM/assets  # Change to your path of assets
 
 hydra:
   job:

@@ -13,11 +13,9 @@ import torch
 from env import Soccer
 from utils.gpu_manager import *
 
-from skrl.multi_agents.torch.ippo import IPPO, IPPO_DEFAULT_CONFIG
 
 @hydra.main(config_path="cfg", config_name="config", version_base="1.3")
 def main(cfg):
-
     # Cuda
     gpu_manager = GPUManager()
     device = torch.device(type='cuda', index=gpu_manager.auto_choice()[0])
@@ -29,27 +27,31 @@ def main(cfg):
 
 
     env = Soccer(cfg)
-    step = 0
 
-    # # random test
+    # # mecanum test
+    # action = torch.randn((cfg.num_env, cfg.num_agent * 2, 3), device=cfg.sim_device) * 10
+    # action[..., 0] = 0
+    # action[..., 1] = 0
+    # action[..., 2] = 2
+
     # while True:
-    #     action = torch.randn((cfg.num_env, cfg.num_agent * 4 * 2), device=cfg.sim_device) * 5
     #     env.step(action)
     #     step += 1
     #     if step % 100 == 0:
     #         env.reset()
 
-    # mecanum test
-    action = torch.randn((cfg.num_env, cfg.num_agent * 2, 3), device=cfg.sim_device) * 10
-    action[..., 0] = 0
-    action[..., 1] = 0
-    action[..., 2] = 2
+    
 
-    while True:
-        env.step(action)
-        step += 1
-        if step % 100 == 0:
-            env.reset()
+
+
+
+
+
+
+
+
+
+
 
 
 

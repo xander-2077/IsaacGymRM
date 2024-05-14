@@ -7,6 +7,10 @@ import torch
 
 from utils.utils import *
 
+# TODO: 
+# 1. 给出部分需要reset的env
+# 2. pettingzoo接口?
+
 
 class Soccer:
     def __init__(self, args):
@@ -377,7 +381,6 @@ class Soccer:
         self.num_obs_per_robot
 
 
-
     def get_reward(self, obs_global_dict, obs_r0, obs_r1, obs_b0, obs_b1):
         '''
         TODO: annotation
@@ -486,12 +489,12 @@ class Soccer:
         self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
         self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
 
-        obs_global = self.get_obs_global()
+        obs_global, _ = self.get_obs_global()
 
         if not self.args.headless:
             self.render()
 
-        return obs_global
+        return obs_global, None
 
 
     def simulate(self):

@@ -12,7 +12,7 @@ graphics_device_id: 0
 headless: False
 
 cuda_deterministic: True
-
+n_training_threads: 16
 num_env: 16
 num_agent: 2
 max_episode_length: 5000

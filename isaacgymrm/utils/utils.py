@@ -48,3 +48,57 @@ def mecanum_tranform(vel, num_env, device):
     mecanum_vel[..., 3] = vel[..., 0] - vel[..., 1] + vel[..., 2] * (L + W) / 2
     
     return (mecanum_vel / r).reshape(num_env, -1)
+
+def _t2n(x):
+    return x.detach().cpu().numpy()
+
+def transform_to_local(robot_state, other_state):
+    '''
+    将其他机器人的全局状态转换为当前机器人的局部坐标系
+    '''
+    # 获取当前机器人和其他机器人的位置和速度
+    robot_pos = robot_state[1:3]
+    robot_ori = robot_state[5]
+    other_pos = other_state[1:3]
+    other_vel = other_state[3:5]
+    other_ori = other_state[5]
+    other_angvel = other_state[6]
+
+    # 计算相对位置和速度
+    relative_pos = other_pos - robot_pos
+    relative_vel = other_vel - robot_state[3:5]
+
+    # 旋转到局部坐标系
+    relative_pos_local = rotate_to_local(relative_pos, robot_ori)
+    relative_vel_local = rotate_to_local(relative_vel, robot_ori)
+
+    # 返回局部状态
+    return torch.cat((other_state[0:1], relative_pos_local, relative_vel_local, torch.tensor([other_ori - robot_ori]), torch.tensor([other_angvel])))
+
+def transform_position_to_local(robot_state, global_pos):
+    '''
+    将全局位置转换为当前机器人的局部坐标系
+    '''
+    robot_pos = robot_state[1:3]
+    robot_ori = robot_state[5]
+    relative_pos = global_pos - robot_pos
+    return rotate_to_local(relative_pos, robot_ori)
+
+def transform_velocity_to_local(robot_state, global_vel):
+    '''
+    将全局速度转换为当前机器人的局部坐标系
+    '''
+    robot_vel = robot_state[3:5]
+    robot_ori = robot_state[5]
+    relative_vel = global_vel - robot_vel
+    return rotate_to_local(relative_vel, robot_ori)
+
+def rotate_to_local(vector, orientation):
+    '''
+    将向量旋转到局部坐标系
+    '''
+    cos_ori = torch.cos(orientation)
+    sin_ori = torch.sin(orientation)
+    local_x = cos_ori * vector[0] + sin_ori * vector[1]
+    local_y = -sin_ori * vector[0] + cos_ori * vector[1]
+    return torch.tensor([local_x, local_y])

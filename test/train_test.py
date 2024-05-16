@@ -6,7 +6,7 @@ import numpy as np
 
 import sys
 sys.path.append('.')
-from isaacgymrm.env import Soccer
+from isaacgymrm.env import RoboMasterEnv
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', default=None, type=str)
@@ -22,7 +22,7 @@ parser.add_argument('--compute_device_id', default=0, type=int)
 parser.add_argument(
     '--graphics_device_id', type=int, default=0, help='Graphics Device ID'
 )
-parser.add_argument('--num_env', default=1, type=int)
+parser.add_argument('--num_env', default=4, type=int)
 parser.add_argument('--num_agent', type=int, default=2)
 parser.add_argument('--headless', default=False, action='store_true')
 
@@ -34,14 +34,14 @@ parser.add_argument('--reward_conceding', type=int, default=1000)
 parser.add_argument('--reward_vel_to_ball', type=int, default=0.05)
 parser.add_argument('--reward_vel', type=int, default=0.1)
 
-parser.add_argument('--control_freq_inv', type=int, default=1)
+parser.add_argument('--control_freq_inv', type=int, default=5)
 parser.add_argument('--asset_root', type=str, default='/home/xander/Codes/IsaacGymRM/assets')
 
 args = parser.parse_args()
 
 
 if __name__ == '__main__':
-    env = Soccer(args)
+    env = RoboMasterEnv(args)
     step = 0
 
     # action_r = torch.randn((args.num_env, args.num_agent * 4), device=args.sim_device) * 5
@@ -57,15 +57,15 @@ if __name__ == '__main__':
 
 
     # mecanum test
-    action = torch.randn((args.num_env, args.num_agent * 2, 3), device=args.sim_device) * 10
-    action[..., 0] = 0
-    action[..., 1] = 0
-    action[..., 2] = 2
+    action = torch.zeros((args.num_env, args.num_agent * 2, 3), device=args.sim_device)
+    action[..., 0] = 1
+    action[..., 1] = 1
+    action[..., 2] = 0
 
     while True:
         env.step(action)
         step += 1
-        if step % 100 == 0:
-            env.reset()
+        # if step % 100 == 0:
+        #     env.reset_idx()
 
     

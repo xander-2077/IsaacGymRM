@@ -1,18 +1,14 @@
 from isaacgym import gymapi
 from isaacgym import gymtorch
 from isaacgym.torch_utils import *
-import math
 from gymnasium.spaces import Box
 import torch
 import sys, time
 
 from isaacgymrm.utils.utils import *
+from pprint import pprint
 
-# TODO: 
-# 1. 给出部分需要reset的env
-# 2. 为了实现课程学习，需要给出总的训练步数
-
-class Soccer:
+class RoboMasterEnv:
     def __init__(self, args):
         self.args = args
         self.num_env = self.args.num_env
@@ -60,15 +56,14 @@ class Soccer:
         self.clip_obs = np.inf
 
         # Args about episode info
-        self.total_train_env_step = 0
+        self.total_train_env_step= 0
         self.max_episode_length = self.args.max_episode_length
-        self.episode_step = 0
         self.tensor_clone_flag = False
 
         self.allocate_buffers()
-        self.obs_dict = {}   # TODO: obs_dict['state'], obs_dict['obs']
+        self.obs_dict = {}   # obs_dict['state'], obs_dict['obs']
+        self.state_dict = {}
         # -----------------------------------------------------------------------
-        # self.reset()
 
 
     def create_sim(self):
@@ -288,13 +283,12 @@ class Soccer:
         self.state_buf = torch.zeros(
             (self.num_env, self.num_state), device=self.args.sim_device,
             dtype=torch.float)
-        # TODO: 考虑一下obs维度的设置
         self.obs_buf = torch.zeros(
             (self.num_env * self.num_agent * 2, self.num_obs),
             device=self.args.sim_device, dtype=torch.float)
         # TODO: 考虑一下reward的设置
         self.reward_buf = torch.zeros(
-            (self.num_env * self.num_agent * 2), device=self.args.sim_device, dtype=torch.float)
+            (self.num_env, 2), device=self.args.sim_device, dtype=torch.float)
         self.reset_buf = torch.zeros(
             self.num_env, device=self.args.sim_device, dtype=torch.long)
         self.progress_buf = torch.zeros(
@@ -312,13 +306,16 @@ class Soccer:
         Robot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1) * 4
         Ball: BallPos(2), BallVel(2)
         Goal: GoalRedPos(2), GoalBluePos(2)
+        self.state_buf = torch.zeros((self.num_env, num_state))
         '''
+        self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
+        self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
+
         num_state = self.num_state  # 36
         num_info_per_robot = self.num_info_per_robot  # 7
 
         # 每个env的观测值顺序为: Robot1, Robot2, Robot3, Robot4, Ball, GoalRed, GoalBlue
-        state = torch.zeros((self.num_env, num_state), device=self.args.sim_device)
-
+        
         # self.root_tensor: (num_env * num_actor, 13)
         self.root_positions = self.root_tensor[:, 0:3]
         self.root_linvels = self.root_tensor[:, 7:10]
@@ -329,212 +326,123 @@ class Soccer:
             for j, actor_index in enumerate(self.actor_index_in_sim[env_ptr]):
                 if j < len(self.actor_index_in_sim[env_ptr]) - 1:
                     # Robot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
-                    state[i, j * num_info_per_robot] = j
-                    state[i, j * num_info_per_robot + 1 : j * num_info_per_robot + 3] = self.root_positions[actor_index][:-1]
-                    state[i, j * num_info_per_robot + 3 : j * num_info_per_robot + 5] = self.root_linvels[actor_index][:-1]
-                    state[i, j * num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index], self.args.sim_device)
-                    state[i, j * num_info_per_robot + 6] = self.root_angvels[actor_index][-1]
+                    self.state_buf[i, j * self.num_info_per_robot] = j
+                    self.state_buf[i, j * self.num_info_per_robot + 1 : j * self.num_info_per_robot + 3] = self.root_positions[actor_index][:-1]
+                    self.state_buf[i, j * self.num_info_per_robot + 3 : j * self.num_info_per_robot + 5] = self.root_linvels[actor_index][:-1]
+                    self.state_buf[i, j * self.num_info_per_robot + 5] = quaternion_to_yaw(self.root_orientations[actor_index], self.args.sim_device)
+                    self.state_buf[i, j * self.num_info_per_robot + 6] = self.root_angvels[actor_index][-1]
                 else:
                     # Ball: BallPos(2), BallVel(2)
-                    state[i, j * num_info_per_robot : j * num_info_per_robot + 2] = self.root_positions[actor_index][:-1]
-                    state[i, j * num_info_per_robot + 2 : j * num_info_per_robot + 4] = self.root_linvels[actor_index][:-1]
+                    self.state_buf[i, j * self.num_info_per_robot : j * self.num_info_per_robot + 2] = self.root_positions[actor_index][:-1]
+                    self.state_buf[i, j * self.num_info_per_robot + 2 : j * self.num_info_per_robot + 4] = self.root_linvels[actor_index][:-1]
 
             # Goal: GoalRed(2), GoalBlue(2)
-            state[i, j * num_info_per_robot + 4 : j * num_info_per_robot + 6] = torch.tensor([-4.5, 0.0])
-            state[i, j * num_info_per_robot + 6 : j * num_info_per_robot + 8] = torch.tensor([4.5, 0.0])
+            self.state_buf[i, j * self.num_info_per_robot + 4 : j * self.num_info_per_robot + 6] = torch.tensor([-4.5, 0.0])
+            self.state_buf[i, j * self.num_info_per_robot + 6 : j * self.num_info_per_robot + 8] = torch.tensor([4.5, 0.0])
 
-        state_dict = {}
-        state_dict['r0'] = state[..., :num_info_per_robot]
-        state_dict['r1'] = state[..., num_info_per_robot:2*num_info_per_robot]
-        state_dict['b0'] = state[..., 2*num_info_per_robot:3*num_info_per_robot]
-        state_dict['b1'] = state[..., 3*num_info_per_robot:4*num_info_per_robot]
-        state_dict['ball_pos'] = state[..., 4*num_info_per_robot:4*num_info_per_robot+2]
-        state_dict['ball_vel'] = state[..., 4*num_info_per_robot+2:4*num_info_per_robot+4]
-        state_dict['goal_r'] = state[..., 4*num_info_per_robot+4:4*num_info_per_robot+6]
-        state_dict['goal_b'] = state[..., 4*num_info_per_robot+6:4*num_info_per_robot+8]
+    def refresh_state_dict(self):
+        self.state_dict['r0'] = self.state_buf[..., :self.num_info_per_robot]
+        self.state_dict['r1'] = self.state_buf[..., self.num_info_per_robot:2*self.num_info_per_robot]
+        self.state_dict['b0'] = self.state_buf[..., 2*self.num_info_per_robot:3*self.num_info_per_robot]
+        self.state_dict['b1'] = self.state_buf[..., 3*self.num_info_per_robot:4*self.num_info_per_robot]
+        self.state_dict['ball_pos'] = self.state_buf[..., 4*self.num_info_per_robot:4*self.num_info_per_robot+2]
+        self.state_dict['ball_vel'] = self.state_buf[..., 4*self.num_info_per_robot+2:4*self.num_info_per_robot+4]
+        self.state_dict['goal_r'] = self.state_buf[..., 4*self.num_info_per_robot+4:4*self.num_info_per_robot+6]
+        self.state_dict['goal_b'] = self.state_buf[..., 4*self.num_info_per_robot+6:4*self.num_info_per_robot+8]
 
-        return state, state_dict
-
-
-    def get_obs(self, state, rm_id):
+    def get_obs(self):
         '''
-        暂时不用
         机器人局部观测，以机器人为中心的相对坐标
-        Robot: Pos(2), Vel(2), Ori(1), AngularVel(1), ID(1)
-        OpponentRobot: Pos(2), Vel(2), Ori(1), AngularVel(1), ID(1) * 3
+        FriendRobot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
+        OpponentRobot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1) * 2
         Ball: BallPos(2), BallVel(2)
         Goal: GoalPos(2), OpponentGoalPos(2)
+        self.obs_buf = torch.zeros((self.num_env * self.num_agent * 2, self.num_obs))
         '''
-        state = self.get_state()
-        num_envs = state.shape[0]
-        num_info_per_robot = self.num_info_per_robot
-        local_obs_dim = num_info_per_robot * 5 + 4 + 4  # 1 robot + 3 opponents + ball + 2 goals
-        local_obs = torch.zeros((num_envs, local_obs_dim), device=self.args.sim_device)
+        # for i in range(self.num_env):
+        #     for j in range(self.num_agent):
+        #         obs_index_red = i * self.num_agent * 2 + j
+        #         self.obs_buf[obs_index_red, :] = compute_robomaster_observations(self.state_dict, i, j, True, self.num_agent, self.num_obs, self.num_info_per_robot)
 
-        for i in range(num_envs):
-            # 获取当前机器人的全局状态
-            base_idx = rm_id * num_info_per_robot
-            robot_pos = state[i, base_idx + 1:base_idx + 3]
-            robot_ori = state[i, base_idx + 5]
-            robot_cos = torch.cos(-robot_ori)
-            robot_sin = torch.sin(-robot_ori)
-            rotation_matrix = torch.tensor([[robot_cos, -robot_sin], [robot_sin, robot_cos]])
-
-            # 自身状态（不变）
-            local_obs[i, :num_info_per_robot] = state[i, base_idx:base_idx + num_info_per_robot]
-
-            # 其他机器人的状态
-            local_idx = num_info_per_robot
-            for j in range(4):
-                if j != rm_id:
-                    opp_base_idx = j * num_info_per_robot
-                    opp_pos = state[i, opp_base_idx + 1:opp_base_idx + 3]
-                    opp_vel = state[i, opp_base_idx + 3:opp_base_idx + 5]
-                    # 转换为相对位置和速度
-                    relative_pos = opp_pos - robot_pos
-                    relative_pos = torch.matmul(rotation_matrix, relative_pos.unsqueeze(-1)).squeeze(-1)
-                    relative_vel = torch.matmul(rotation_matrix, opp_vel.unsqueeze(-1)).squeeze(-1)
-                    # 更新局部观测
-                    local_obs[i, local_idx:local_idx + 2] = relative_pos
-                    local_obs[i, local_idx + 2:local_idx + 4] = relative_vel
-                    local_obs[i, local_idx + 4:local_idx + 6] = state[i, opp_base_idx + 5:opp_base_idx + 7]
-                    local_obs[i, local_idx + 6] = state[i, opp_base_idx]
-                    local_idx += num_info_per_robot
-
-            # 球的状态
-            ball_idx = 4 * num_info_per_robot
-            ball_pos = state[i, ball_idx + 7:ball_idx + 9]
-            ball_vel = state[i, ball_idx + 9:ball_idx + 11]
-            relative_ball_pos = ball_pos - robot_pos
-            relative_ball_pos = torch.matmul(rotation_matrix, relative_ball_pos.unsqueeze(-1)).squeeze(-1)
-            relative_ball_vel = torch.matmul(rotation_matrix, ball_vel.unsqueeze(-1)).squeeze(-1)
-            local_obs[i, local_idx:local_idx + 2] = relative_ball_pos
-            local_obs[i, local_idx + 2:local_idx + 4] = relative_ball_vel
-
-            # 目标和对方目标的位置（相对位置）
-            goal_pos = state[i, ball_idx + 11:ball_idx + 13] - robot_pos
-            opponent_goal_pos = state[i, ball_idx + 13:ball_idx + 15] - robot_pos
-            goal_pos = torch.matmul(rotation_matrix, goal_pos.unsqueeze(-1)).squeeze(-1)
-            opponent_goal_pos = torch.matmul(rotation_matrix, opponent_goal_pos.unsqueeze(-1)).squeeze(-1)
-            local_obs[i, local_idx + 4:local_idx + 6] = goal_pos
-            local_obs[i, local_idx + 6:local_idx + 8] = opponent_goal_pos
-
-        return local_obs
+        #         obs_index_blue = i * self.num_agent * 2 + j + self.num_agent
+        #         self.obs_buf[obs_index_blue, :] = compute_robomaster_observations(self.state_dict, i, j, False, self.num_agent, self.num_obs, self.num_info_per_robot)
 
 
-    def get_reward(self, state_dict, obs_r0, obs_r1, obs_b0, obs_b1):
-        reward_r = 0
-        reward_b = 0
-        terminated = False
+    def get_reward(self):
+        '''
+        Get reward_buf, reset_buf
+        self.reward_buf = torch.zeros((self.num_env, 2))
+        self.reset_buf = torch.zeros(self.num_env)
+        '''
+        for env_idx in range(self.num_env):
+            # Scoring or Conceding
+            if self.state_dict['ball_pos'][env_idx][0] < self.state_dict['goal_r'][env_idx][0]:
+                self.reward_buf[env_idx][0] += -1 * self.args.reward_conceding
+                self.reward_buf[env_idx][1] += 1 * self.args.reward_scoring
+                self.reset_buf[env_idx] = 1
+                return
+            elif self.state_dict['ball_pos'][env_idx][0] > self.state_dict['goal_b'][env_idx][0]:
+                self.reward_buf[env_idx][0] += 1 * self.args.reward_scoring
+                self.reward_buf[env_idx][1] += -1 * self.args.reward_conceding
+                self.reset_buf[env_idx] = 1
+                return
+            
+            # Velocity to ball
+            for robot in ['r0', 'r1', 'b0', 'b1']:
+                dir_vec = self.state_dict['ball_pos'][env_idx] - self.state_dict[robot][env_idx][1:3]
+                norm_dir_vec = dir_vec / dir_vec.norm()
+                vel_towards_ball = torch.dot(self.state_dict[robot][env_idx][3:5], norm_dir_vec).item()
+                if robot in ['r0', 'r1']:
+                    self.reward_buf[env_idx][0] += vel_towards_ball * self.args.reward_vel_to_ball
+                else:
+                    self.reward_buf[env_idx][1] += vel_towards_ball * self.args.reward_vel_to_ball
 
-        # Scoring or Conceding
-        if state_dict['ball_pos'][0] < state_dict['goal_r'][0]:
-            reward_r = -1 * self.args.reward_conceding
-            reward_b = 1 * self.args.reward_scoring
-            return reward_r, reward_b, True
-        elif state_dict['ball_pos'][0] > state_dict['goal_b'][0]:
-            reward_r = 1 * self.args.reward_scoring
-            reward_b = -1 * self.args.reward_conceding
-            return reward_r, reward_b, True
+            # Velocity forward
+            self.reward_buf[env_idx][0] += (self.state_dict['r0'][env_idx][3] + self.state_dict['r1'][env_idx][3]) * self.args.reward_vel
+            self.reward_buf[env_idx][1] += - (self.state_dict['b0'][env_idx][3] + self.state_dict['b1'][env_idx][3]) * self.args.reward_vel
 
-        # Velocity to ball
-        for robot in ['r0', 'r1', 'b0', 'b1']:
-            dir_vec = state_dict['ball_pos'] - state_dict[robot][1:3]
-            norm_dir_vec = dir_vec / dir_vec.norm()
-            vel_towards_ball = torch.dot(state_dict[robot][3:5], norm_dir_vec).item()
-            if robot in ['r0', 'r1']:
-                reward_r += vel_towards_ball * self.args.reward_vel_to_ball
-            else:
-                reward_b += vel_towards_ball * self.args.reward_vel_to_ball
+            # TODO: add more rewards
 
-        # Velocity forward
-        reward_r += (state_dict['r0'][3] + state_dict['r1'][3]) * self.args.reward_vel
-        reward_b += - (state_dict['b0'][3] + state_dict['b1'][3]) * self.args.reward_vel
-
-        # TODO: add more rewards
-
-
-        return reward_r, reward_b, terminated
+        self.reset_buf = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
 
 
     def pre_physics_step(self, actions):
         '''
         Apply the actions to the environment (eg by setting torques, position targets).
-
         控制的变量actions_target_tensor维度是2, 很奇怪为什么gym.set_dof_velocity_target_tensor支持这样的参数输入
         '''
-        actions = mecanum_tranform(actions, self.num_env, self.args.sim_device)
+        self.actions = actions.clone().to(self.args.sim_device) * self.rm_wheel_vel_limit
+
+        wheel_vel = mecanum_tranform(self.actions, self.num_env, self.args.sim_device)
 
         actions_target_tensor = torch.zeros((self.num_env, self.num_dof_per_env), device=self.args.sim_device)
 
-        actions_target_tensor[:, self.wheel_dof_handles_per_env] = actions
+        actions_target_tensor[:, self.wheel_dof_handles_per_env] = wheel_vel
         
         self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(actions_target_tensor))
         
 
     def post_physics_step(self):
-        """Compute reward and observations, reset any environments that require it."""
-        # TODO:
+        """
+        Compute reward and observations, reset any environments that require it.
+        """
         self.progress_buf += 1
-        env_idx = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+
+        env_idx = self.reset_buf.nonzero(as_tuple=False).flatten()
         if len(env_idx) > 0:
             self.reset_idx(env_idx)
 
-
-        self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
-        self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
-
-
-        state, state_dict = self.get_state()
-
-        # self.get_reward(state_dict, **kwargs)
-
-        return None
-
-
-    def step(self, actions: torch.Tensor):
-        '''
-        actions(Tuple): (action_r, action_b)
-        action_r/action_b(Tensor): (num_env, num_agent * 4) 
-        tensor([  0,  16,  33,  49,  66,  82,  99, 115, 132, 148, 165, 181, 198, 214, 231, 247])
-        # TODO: apply randomizations to actions and observations
-        '''
-        action_tensor = torch.clamp(actions, -self.clip_action, self.clip_action)
-        
-        self.pre_physics_step(action_tensor)
-
-        for _ in range(self.args.control_freq_inv):  # TODO: control_freq_inv
-            self.render()
-            self.gym.simulate(self.sim)
-        
-        self.post_physics_step()
-
-        # if self.episode_step == 2:
-        if not torch.all(self.root_tensor.eq(0.)) and not torch.all(self.dof_states.eq(0.)) and not self.tensor_clone_flag:
-            self.saved_root_tensor = self.root_tensor.clone()
-            self.saved_dof_states = self.dof_states.clone()
-            self.tensor_clone_flag = True
-
-        self.episode_step += 1
+        self.get_state()   # self.state_buf
+        self.refresh_state_dict()   # Get self.state_dict
+        # self.get_obs()    # self.obs_buf
+        self.get_reward()  # reward_buf, reset_buf
 
         
-
-        self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (self.reset_buf != 0)   # TODO: truncated
-
-
-        # self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs)
-        
-        # if self.episode_step >= self.max_episode_length:
-        #     return state, reward, False, True, {}
-        self.total_train_env_step += 1  # TODO: 这里可能有问题
-        
-        # return state, reward, terminated, False, {}
-        return self.obs_dict, self.reward_buf, self.reset_buf, self.extras
-
-
     def reset_idx(self, env_idx):
-        """Reset environment with indices in env_idx. """
-
+        """
+        Reset environment with indices in env_idx. 
+        Only used in post_physics_step() function.
+        """
         actor_indices = self.actor_index_in_sim[self.envs[env_idx]].flatten()
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), actor_indices, len(actor_indices)
@@ -543,18 +451,61 @@ class Soccer:
         # Clear up desired buffer states
         self.reset_buf[env_idx] = 0
         self.progress_buf[env_idx] = 0
+
+
+    def step(self, actions):
+        '''
+        actions(Tuple): (action_r, action_b)
+        action_r/action_b(Tensor): (num_env, num_agent * 4) 
+        '''
+        # # TODO: add randomization
+        # if self.dr_randomizations.get('actions', None):
+        #     actions = self.dr_randomizations['actions']['noise_lambda'](actions)
+
+        action_tensor = torch.clamp(actions, -self.clip_action, self.clip_action)
+        self.pre_physics_step(action_tensor)
+
+        for _ in range(self.args.control_freq_inv):
+            self.render()
+            self.gym.simulate(self.sim)
         
-        state, _ = self.get_state()
+        self.post_physics_step()
 
-        return state, None
+        self.total_train_env_step += 1
 
+        if not torch.all(self.root_tensor.eq(0.)) and not torch.all(self.dof_states.eq(0.)) and not self.tensor_clone_flag:
+            self.saved_root_tensor = self.root_tensor.clone()
+            self.saved_dof_states = self.dof_states.clone()
+            self.tensor_clone_flag = True
+
+        self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (self.reset_buf != 0)
+        
+        # # TODO: randomize observations
+        # if self.dr_randomizations.get('observations', None):
+        #     self.obs_buf = self.dr_randomizations['observations']['noise_lambda'](self.obs_buf)
+
+        self.extras["time_outs"] = self.timeout_buf.to(self.args.sim_device)
+        
+        self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
+        self.obs_dict["states"] = torch.clamp(self.state_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
+
+        return self.obs_dict, self.reward_buf, self.reset_buf, self.extras
+    
 
     def reset(self):
-        '''
-        TODO: Add annotation
-        Is called only once when environment starts to provide the first observations.
-        Doesn't calculate observations. Actual reset and observation calculation need to be implemented by user.
+        """Is called only once when environment starts to provide the first observations.
+        Returns:
+            Observation dictionary
+        """
+        self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
+        self.obs_dict["states"] = torch.clamp(self.states_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
 
+        return self.obs_dict
+
+
+    def _reset(self):
+        '''
+        Deserted !!!
         '''
         # FIXME: It seems that the following code will cause the error: "RuntimeError: CUDA error: an illegal memory access was encountered"
         # self.gym.set_dof_state_tensor_indexed(
@@ -565,25 +516,20 @@ class Soccer:
             self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(self.actor_index_in_sim_flat), len(self.actor_index_in_sim_flat)
         )
 
-        for _ in range(self.args.control_freq_inv):  # TODO: control_freq_inv
+        for _ in range(self.args.control_freq_inv): 
             self.render()
             self.gym.simulate(self.sim)
-            
-        self.gym.refresh_actor_root_state_tensor(self.sim)  # self.root_tensor
-        self.gym.refresh_dof_state_tensor(self.sim)   # self.dof_states
 
-        state, _ = self.get_state()
+        self.get_state()
 
         self.render()
 
-        self.episode_step = 0
-
-        return state, None
+        return self.state_buf, None
 
 
     def apply_randomization(self):
+        # TODO: randomization
         pass
-
 
     def exit(self):
         if self.viewer:
@@ -595,5 +541,61 @@ class Soccer:
 #####################################################################
 
 @torch.jit.script
-def compute_reward():
+def compute_robomaster_reward():
     pass
+
+# @torch.jit.script
+# def compute_robomaster_observations(state_dict: dict, env_index: int, agent_index: int, is_red: bool, num_agent: int, num_obs: int, num_info_per_robot: int) -> torch.Tensor:
+#     '''
+#     机器人局部观测，以机器人为中心的相对坐标
+#     # SelfRobot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
+#     FriendRobot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1)
+#     OpponentRobot: ID(1), Pos(2), Vel(2), Ori(1), AngularVel(1) * 2
+#     Ball: BallPos(2), BallVel(2)
+#     Goal: GoalPos(2), OpponentGoalPos(2)
+#     self.obs_buf = torch.zeros((self.num_env * self.num_agent * 2, self.num_obs))
+
+#     Args:
+#         state_dict: dict, 'r0', 'r1', 'b0', 'b1', 'ball_pos', 'ball_vel', 'goal_r', 'goal_b'
+#         env_index: int
+#         agent_index: int
+#         is_red: bool
+#         num_agent: int
+#         num_info_per_robot: int
+#     '''
+#     obs = torch.zeros(num_obs)
+#     if is_red:
+#         self_robot_state = state_dict[f'r{agent_index}'][env_index]
+#     else:
+#         self_robot_state = state_dict[f'b{agent_index}'][env_index]
+
+#     # 计算本方机器人的相对坐标
+#     k = int(1 - agent_index)
+#     if is_red:
+#         mate_robot_state = state_dict[f'r{k}'][env_index]
+#         obs[k * num_info_per_robot : (k + 1) * num_info_per_robot] = transform_to_local(self_robot_state, mate_robot_state)
+#     else:
+#         mate_robot_state = state_dict[f'b{k}'][env_index]
+#         obs[k * num_info_per_robot : (k + 1) * num_info_per_robot] = transform_to_local(self_robot_state, mate_robot_state)
+
+#     # 计算对方机器人的相对坐标
+#     for k in range(num_agent):
+#         if is_red:
+#             opponent_robot_state = state_dict[f'b{k}'][env_index]
+#         else:
+#             mate_robot_state = state_dict[f'r{k}'][env_index]
+#         obs[(num_agent + k) * num_info_per_robot : (num_agent + k + 1) * num_info_per_robot] = transform_to_local(self_robot_state, opponent_robot_state if is_red else mate_robot_state)
+    
+#     # 球的位置和速度
+#     ball_pos = state_dict['ball_pos'][env_index]
+#     ball_vel = state_dict['ball_vel'][env_index]
+#     obs[num_agent * 2 * num_info_per_robot : num_agent * 2 * num_info_per_robot + 2] = transform_position_to_local(self_robot_state, ball_pos)
+#     obs[num_agent * 2 * num_info_per_robot + 2 : num_agent * 2 * num_info_per_robot + 4] = transform_velocity_to_local(self_robot_state, ball_vel)
+
+#     # 目标位置
+#     goal_pos = state_dict['goal_r'][env_index]
+#     opponent_goal_pos = state_dict['goal_b'][env_index]
+#     obs[num_agent * 2 * num_info_per_robot + 4 : num_agent * 2 * num_info_per_robot + 6] = transform_position_to_local(self_robot_state, goal_pos)
+#     obs[num_agent * 2 * num_info_per_robot + 6 : num_agent * 2 * num_info_per_robot + 8] = transform_position_to_local(self_robot_state, opponent_goal_pos)
+    
+#     return obs

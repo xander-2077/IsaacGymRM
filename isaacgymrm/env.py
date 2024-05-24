@@ -4,9 +4,12 @@ from isaacgym.torch_utils import *
 from gymnasium.spaces import Box
 import torch
 import sys, time
+from pprint import pprint
 
 from isaacgymrm.utils.utils import *
-from pprint import pprint
+
+
+# TODO: 
 
 class RoboMasterEnv:
     def __init__(self, args):
@@ -43,12 +46,13 @@ class RoboMasterEnv:
         self.num_info_per_robot: int = 7   # Ignore gripper for now
         self.num_state = self.num_agent * 2 * self.num_info_per_robot + 8
         self.num_obs = (self.num_agent * 2 - 1) * self.num_info_per_robot + 8
-        self.num_act_per_robot = 4
-        self.num_act = self.num_agent * self.num_act_per_robot  # 控制四个轮子转速
+        self.num_act_per_robot = 3
+        self.num_act = self.num_agent * self.num_act_per_robot
 
         self.state_space = Box(low=-np.inf, high=np.inf, shape=(self.num_state,), dtype=np.float32)
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(self.num_obs,), dtype=np.float32)
-        self.action_space = Box(low=-1.0, high=1.0, shape=(self.num_act,), dtype=np.float32,)
+        # self.action_space = Box(low=-1.0, high=1.0, shape=(self.num_act,), dtype=np.float32)  # TODO: 控制一队
+        self.action_space = Box(low=-1.0, high=1.0, shape=(self.num_act_per_robot,), dtype=np.float32)  # 控制一个
 
         # self.share_observation_space = [Box(low=-100, high=100, shape = ([self.num_obs]), dtype=np.float16) for _ in range(self.args.num_envs*self.n_agents)]
 
@@ -286,7 +290,6 @@ class RoboMasterEnv:
         self.obs_buf = torch.zeros(
             (self.num_env * self.num_agent * 2, self.num_obs),
             device=self.args.sim_device, dtype=torch.float)
-        # TODO: 考虑一下reward的设置
         self.reward_buf = torch.zeros(
             (self.num_env, 2), device=self.args.sim_device, dtype=torch.float)
         self.reset_buf = torch.zeros(
@@ -370,23 +373,34 @@ class RoboMasterEnv:
 
     def get_reward(self):
         '''
-        Get reward_buf, reset_buf
+        Get reward_buf, reset_buf 
+        # FIXME: 出现两个进球奖励，代码逻辑需要调整
         self.reward_buf = torch.zeros((self.num_env, 2))
-        self.reset_buf = torch.zeros(self.num_env)
+        self.reset_buf = torch.zeros(self.num_env) 
         '''
+        self.reward_buf.zero_()
         for env_idx in range(self.num_env):
             # Scoring or Conceding
             if self.state_dict['ball_pos'][env_idx][0] < self.state_dict['goal_r'][env_idx][0]:
                 self.reward_buf[env_idx][0] += -1 * self.args.reward_conceding
                 self.reward_buf[env_idx][1] += 1 * self.args.reward_scoring
                 self.reset_buf[env_idx] = 1
-                return
             elif self.state_dict['ball_pos'][env_idx][0] > self.state_dict['goal_b'][env_idx][0]:
                 self.reward_buf[env_idx][0] += 1 * self.args.reward_scoring
                 self.reward_buf[env_idx][1] += -1 * self.args.reward_conceding
                 self.reset_buf[env_idx] = 1
-                return
             
+            # Out of boundary
+            for robot in ['r0', 'r1']:
+                if self.state_dict[robot][env_idx][1] < self.state_dict['goal_r'][env_idx][0]-1 or self.state_dict[robot][env_idx][1] > self.state_dict['goal_b'][env_idx][0]+1:
+                    self.reward_buf[env_idx][0] += -1 * self.args.reward_out_of_boundary
+                    self.reset_buf[env_idx] = 1
+
+            for robot in ['b0', 'b1']:
+                if self.state_dict[robot][env_idx][1] < self.state_dict['goal_r'][env_idx][0]-1 or self.state_dict[robot][env_idx][1] > self.state_dict['goal_b'][env_idx][0]+1:
+                    self.reward_buf[env_idx][1] += 1 * self.args.reward_out_of_boundary
+                    self.reset_buf[env_idx] = 1
+
             # Velocity to ball
             for robot in ['r0', 'r1', 'b0', 'b1']:
                 dir_vec = self.state_dict['ball_pos'][env_idx] - self.state_dict[robot][env_idx][1:3]
@@ -405,6 +419,8 @@ class RoboMasterEnv:
 
         self.reset_buf = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
 
+        # pprint(self.reward_buf)
+
 
     def pre_physics_step(self, actions):
         '''
@@ -412,7 +428,6 @@ class RoboMasterEnv:
         控制的变量actions_target_tensor维度是2, 很奇怪为什么gym.set_dof_velocity_target_tensor支持这样的参数输入
         '''
         self.actions = actions.clone().to(self.args.sim_device) * self.rm_wheel_vel_limit
-
         wheel_vel = mecanum_tranform(self.actions, self.num_env, self.args.sim_device)
 
         actions_target_tensor = torch.zeros((self.num_env, self.num_dof_per_env), device=self.args.sim_device)
@@ -443,9 +458,12 @@ class RoboMasterEnv:
         Reset environment with indices in env_idx. 
         Only used in post_physics_step() function.
         """
-        actor_indices = self.actor_index_in_sim[self.envs[env_idx]].flatten()
+        indices_list = env_idx.tolist()
+        envs = [self.envs[i] for i in indices_list]
+        actor_indices = torch.tensor([self.actor_index_in_sim[env_ptr] for env_ptr in envs], dtype=torch.int32, device=self.args.sim_device).flatten()
+        
         self.gym.set_actor_root_state_tensor_indexed(
-            self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), actor_indices, len(actor_indices)
+            self.sim, gymtorch.unwrap_tensor(self.saved_root_tensor), gymtorch.unwrap_tensor(actor_indices), len(actor_indices)
         )
 
         # Clear up desired buffer states
@@ -455,8 +473,6 @@ class RoboMasterEnv:
 
     def step(self, actions):
         '''
-        actions(Tuple): (action_r, action_b)
-        action_r/action_b(Tensor): (num_env, num_agent * 4) 
         '''
         # # TODO: add randomization
         # if self.dr_randomizations.get('actions', None):
@@ -498,7 +514,7 @@ class RoboMasterEnv:
             Observation dictionary
         """
         self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
-        self.obs_dict["states"] = torch.clamp(self.states_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
+        self.obs_dict["states"] = torch.clamp(self.state_buf, -self.clip_obs, self.clip_obs).to(self.args.sim_device)
 
         return self.obs_dict
 

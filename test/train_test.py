@@ -22,7 +22,7 @@ parser.add_argument('--compute_device_id', default=0, type=int)
 parser.add_argument(
     '--graphics_device_id', type=int, default=0, help='Graphics Device ID'
 )
-parser.add_argument('--num_env', default=4, type=int)
+parser.add_argument('--num_env', default=16, type=int)
 parser.add_argument('--num_agent', type=int, default=2)
 parser.add_argument('--headless', default=False, action='store_true')
 
@@ -31,11 +31,12 @@ parser.add_argument('--max_episode_length', type=int, default=500)
 # reward scale
 parser.add_argument('--reward_scoring', type=int, default=1000)
 parser.add_argument('--reward_conceding', type=int, default=1000)
-parser.add_argument('--reward_vel_to_ball', type=int, default=0.05)
-parser.add_argument('--reward_vel', type=int, default=0.1)
+parser.add_argument('--reward_vel_to_ball', type=float, default=0.05)
+parser.add_argument('--reward_vel', type=float, default=0.1)
+parser.add_argument('--reward_out_of_boundary', type=int, default=10)
 
 parser.add_argument('--control_freq_inv', type=int, default=5)
-parser.add_argument('--asset_root', type=str, default='/home/xander/Codes/IsaacGymRM/assets')
+parser.add_argument('--asset_root', type=str, default='/home/xander/Codes/IsaacGym/IsaacGymRM/assets')
 
 args = parser.parse_args()
 
@@ -59,7 +60,7 @@ if __name__ == '__main__':
     # mecanum test
     action = torch.zeros((args.num_env, args.num_agent * 2, 3), device=args.sim_device)
     action[..., 0] = 1
-    action[..., 1] = 1
+    action[..., 1] = 0
     action[..., 2] = 0
 
     while True:

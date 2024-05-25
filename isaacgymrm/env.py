@@ -418,7 +418,6 @@ class RoboMasterEnv:
             # Close to ball
             for robot in ['r0', 'r1', 'b0', 'b1']:
                 dist_to_ball = torch.norm(self.state_dict['ball_pos'][env_idx] - self.state_dict[robot][env_idx][1:3]).item()
-                if robot=='r0': print("r0 dist to ball: ", dist_to_ball)
                 if dist_to_ball < 0.3:
                     if robot in ['r0', 'r1']:
                         self.reward_buf[env_idx][0] += (0.5 - dist_to_ball) * self.args.reward_dist_to_ball

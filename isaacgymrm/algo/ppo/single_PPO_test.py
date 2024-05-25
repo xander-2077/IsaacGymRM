@@ -28,22 +28,6 @@ def main(cfg):
 
     env = Soccer(cfg)
 
-    # # mecanum test
-    # action = torch.randn((cfg.num_env, cfg.num_agent * 2, 3), device=cfg.sim_device) * 10
-    # action[..., 0] = 0
-    # action[..., 1] = 0
-    # action[..., 2] = 2
-
-    # while True:
-    #     env.step(action)
-    #     step += 1
-    #     if step % 100 == 0:
-    #         env.reset()
-
-    
-
-
-
 
 
 

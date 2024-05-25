@@ -44,7 +44,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "Robomaster"
     """the id of the environment"""
-    total_timesteps: int = 100000
+    total_timesteps: int = 5000000
     """total timesteps of the experiments"""
     learning_rate: float = 0.0026  # 3e-4
     """the learning rate of the optimizer"""
@@ -77,6 +77,7 @@ class Args:
     target_kl: float = None  # 
     """the target KL divergence threshold"""
     save_model: bool = True
+    save_model_interval: int = 5000
 
     # to be filled in runtime
     batch_size: int = 0
@@ -98,9 +99,10 @@ class Args:
 
     reward_scoring = 1000
     reward_conceding = 1000
-    reward_vel_to_ball = 0.05
+    reward_vel_to_ball = 0.2
     reward_vel = 0.1
     reward_out_of_boundary = 10
+    reward_dist_to_ball = 0.1
     
 
 class RecordEpisodeStatisticsTorch(gym.Wrapper):
@@ -349,10 +351,10 @@ if __name__ == "__main__":
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-    if args.save_model:
-        model_path = f"runs/{run_name}/agent.cleanrl_model"
-        torch.save(agent.state_dict(), model_path)
-        print(f"model saved to {model_path}")
+        if args.save_model and iteration % args.save_model_interval == 0:
+            model_path = f"runs/{run_name}/agent_{iteration}.cleanrl_model"
+            torch.save(agent.state_dict(), model_path)
+            print(f"model saved to {model_path}")
 
     # envs.close()
     writer.close()

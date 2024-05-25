@@ -8,7 +8,7 @@ sys.path.append('/home/xander/Codes/IsaacGym/IsaacGymRM/')
 from isaacgymrm.env import RoboMasterEnv
 import torch
 
-from isaacgymrm.algo.PPO_isaacgym_CleanRL import Args, RecordEpisodeStatisticsTorch, Agent
+from isaacgymrm.algo.ppo.PPO_isaacgym_CleanRL import Args, RecordEpisodeStatisticsTorch, Agent
 
 
 def evaluate(
@@ -40,7 +40,7 @@ def evaluate(
         #             continue
         #         print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
         #         episodic_returns += [info["episode"]["r"]]
-        
+
         obs = next_obs
 
     return episodic_returns

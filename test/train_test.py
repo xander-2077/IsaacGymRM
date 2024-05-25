@@ -34,6 +34,7 @@ parser.add_argument('--reward_conceding', type=int, default=1000)
 parser.add_argument('--reward_vel_to_ball', type=float, default=0.05)
 parser.add_argument('--reward_vel', type=float, default=0.1)
 parser.add_argument('--reward_out_of_boundary', type=int, default=10)
+parser.add_argument('--reward_dist_to_ball', type=int, default=10)
 
 parser.add_argument('--control_freq_inv', type=int, default=5)
 parser.add_argument('--asset_root', type=str, default='/home/xander/Codes/IsaacGym/IsaacGymRM/assets')

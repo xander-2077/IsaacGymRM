@@ -9,7 +9,7 @@ from pprint import pprint
 from isaacgymrm.utils.utils import *
 
 
-# TODO: 
+# TODO: action接口修改
 
 class RoboMasterEnv:
     def __init__(self, args):
@@ -146,7 +146,7 @@ class RoboMasterEnv:
         self.rm_gripper_limits = torch.tensor(rm_gripper_limits, device=self.args.sim_device)   # lower, upper, max effort
 
         rm_pose = [gymapi.Transform() for i in range(4)]
-        rm_pose[0].p = gymapi.Vec3(-2, -2, 0.01)
+        rm_pose[0].p = gymapi.Vec3(-2, 2, 0.01) # TODO: change initial position
         rm_pose[1].p = gymapi.Vec3(-2, 2, 0.01)
         rm_pose[2].p = gymapi.Vec3(2, -2, 0.01)
         rm_pose[3].p = gymapi.Vec3(2, 2, 0.01)
@@ -414,6 +414,18 @@ class RoboMasterEnv:
             # Velocity forward
             self.reward_buf[env_idx][0] += (self.state_dict['r0'][env_idx][3] + self.state_dict['r1'][env_idx][3]) * self.args.reward_vel
             self.reward_buf[env_idx][1] += - (self.state_dict['b0'][env_idx][3] + self.state_dict['b1'][env_idx][3]) * self.args.reward_vel
+
+            # Close to ball
+            for robot in ['r0', 'r1', 'b0', 'b1']:
+                dist_to_ball = torch.norm(self.state_dict['ball_pos'][env_idx] - self.state_dict[robot][env_idx][1:3]).item()
+                if robot=='r0': print("r0 dist to ball: ", dist_to_ball)
+                if dist_to_ball < 0.3:
+                    if robot in ['r0', 'r1']:
+                        self.reward_buf[env_idx][0] += (0.5 - dist_to_ball) * self.args.reward_dist_to_ball
+                    else:
+                        self.reward_buf[env_idx][1] += (0.5 - dist_to_ball) * self.args.reward_dist_to_ball
+
+
 
             # TODO: add more rewards
 

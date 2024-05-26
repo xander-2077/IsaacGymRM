@@ -493,8 +493,8 @@ class RoboMasterEnv:
         self.pre_physics_step(action_tensor)
 
         for _ in range(self.args.control_freq_inv):
-            self.render()
             self.gym.simulate(self.sim)
+            self.render()
         
         self.post_physics_step()
 
@@ -544,8 +544,8 @@ class RoboMasterEnv:
         )
 
         for _ in range(self.args.control_freq_inv): 
-            self.render()
             self.gym.simulate(self.sim)
+            self.render()
 
         self.get_state()
 

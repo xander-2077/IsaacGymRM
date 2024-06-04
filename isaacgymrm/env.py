@@ -259,8 +259,6 @@ class RoboMasterEnv:
                 elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
 
-            self.gym.fetch_results(self.sim, True)
-
             if self.enable_viewer_sync:
                 self.gym.step_graphics(self.sim)
                 self.gym.draw_viewer(self.viewer, self.sim, True)
@@ -494,8 +492,9 @@ class RoboMasterEnv:
         self.pre_physics_step(action_tensor)
 
         for _ in range(self.args.control_freq_inv):
-            self.render()
             self.gym.simulate(self.sim)
+            self.gym.fetch_results(self.sim, True)
+            self.render()
         
         self.post_physics_step()
 
@@ -545,8 +544,8 @@ class RoboMasterEnv:
         )
 
         for _ in range(self.args.control_freq_inv): 
-            self.render()
             self.gym.simulate(self.sim)
+            self.render()
 
         self.get_state()
 

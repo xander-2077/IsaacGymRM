@@ -24,7 +24,7 @@ parser.add_argument(
 )
 parser.add_argument('--num_env', default=1024, type=int)
 parser.add_argument('--num_agent', type=int, default=2)
-parser.add_argument('--headless', default=False, action='store_true')
+parser.add_argument('--headless', default=True, action='store_true')
 
 parser.add_argument('--max_episode_length', type=int, default=500)
 
@@ -37,7 +37,7 @@ parser.add_argument('--reward_out_of_boundary', type=int, default=10)
 parser.add_argument('--reward_dist_to_ball', type=int, default=10)
 
 parser.add_argument('--control_freq_inv', type=int, default=5)
-parser.add_argument('--asset_root', type=str, default='/home/xander/Codes/IsaacGym/IsaacGymRM/assets')
+parser.add_argument('--asset_root', type=str, default='./assets')
 
 args = parser.parse_args()
 

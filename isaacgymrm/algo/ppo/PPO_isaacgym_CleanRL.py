@@ -3,7 +3,7 @@ import os
 import random
 import time
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import gymnasium as gym
 import isaacgym  # noqa
@@ -13,11 +13,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import tyro
+import yaml
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
 import sys
 from pprint import pprint
+sys.path.append('./')
 sys.path.append('./')
 from isaacgymrm.env import RoboMasterEnv
 
@@ -46,7 +48,7 @@ class Args:
     """the id of the environment"""
     total_timesteps: int = 5000000
     """total timesteps of the experiments"""
-    learning_rate: float = 0.0026  # 3e-4
+    learning_rate: float = 3e-4  # 3e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -66,13 +68,13 @@ class Args:
     """Toggles advantages normalization"""
     clip_coef: float = 0.2
     """the surrogate clipping coefficient"""
-    clip_vloss: bool = False  # True
+    clip_vloss: bool = True  # True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
     ent_coef: float = 0.0  # 0.01
     """coefficient of the entropy"""
     vf_coef: float = 2  # 0.5
     """coefficient of the value function"""
-    max_grad_norm: float = 1  # 0.5
+    max_grad_norm: float = 0.5  # 0.5
     """the maximum norm for the gradient clipping"""
     target_kl: float = None  # 
     """the target KL divergence threshold"""
@@ -95,6 +97,7 @@ class Args:
     headless = True
     max_episode_length = 500
     control_freq_inv = 5
+    asset_root = './assets'
     asset_root = './assets'
 
     reward_scoring = 1000
@@ -159,15 +162,19 @@ class Agent(nn.Module):
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 256)),
             nn.Tanh(),
+            # nn.ReLU(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
+            # nn.ReLU(),
             layer_init(nn.Linear(256, 1), std=1.0),
         )
         self.actor_mean = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 256)),
             nn.Tanh(),
+            # nn.ReLU(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
+            # nn.ReLU(),
             layer_init(nn.Linear(256, np.prod(envs.single_action_space.shape)), std=0.01),
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
@@ -176,9 +183,25 @@ class Agent(nn.Module):
         return self.critic(x)
 
     def get_action_and_value(self, x, action=None):
+        invalid_mask = torch.isnan(x) | torch.isinf(x)
+        x[invalid_mask] = 0
+        try:
+            assert torch.all(torch.isfinite(x)), "x contains invalid values (NaN or Inf)"
+        except AssertionError as e:
+            print("x: ", x)
+
         action_mean = self.actor_mean(x)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
+
+        try:
+            assert torch.all(torch.isfinite(action_mean)), "action_mean contains invalid values (NaN or Inf)"
+        except AssertionError as e:
+            print("action_mean: ", action_mean)
+            import pdb; pdb.set_trace()
+            
+        # assert torch.all(torch.isfinite(action_std)), "action_std contains invalid values (NaN or Inf)"
+
         probs = Normal(action_mean, action_std)
         if action is None:
             action = probs.sample()
@@ -196,6 +219,10 @@ if __name__ == "__main__":
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
+    args_dict = asdict(args)
+    yaml_file_path = f"runs/{run_name}/arg.yaml"
+    with open(yaml_file_path, 'w') as yaml_file:
+        yaml.dump(args_dict, yaml_file, default_flow_style=False)
 
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)

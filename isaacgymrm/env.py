@@ -83,6 +83,7 @@ class RoboMasterEnv:
         sim_params.physx.num_velocity_iterations = 1  # default: 1
         sim_params.physx.rest_offset = 0.001
         sim_params.physx.contact_offset = 0.02
+        sim_params.physx.max_gpu_contact_pairs = 2920898
 
         self.dt = sim_params.dt
         self.sim = self.gym.create_sim(
@@ -146,7 +147,7 @@ class RoboMasterEnv:
         self.rm_gripper_limits = torch.tensor(rm_gripper_limits, device=self.args.sim_device)   # lower, upper, max effort
 
         rm_pose = [gymapi.Transform() for i in range(4)]
-        rm_pose[0].p = gymapi.Vec3(-2, 2, 0.01) # TODO: change initial position
+        rm_pose[0].p = gymapi.Vec3(-2, -2, 0.01) # TODO: change initial position
         rm_pose[1].p = gymapi.Vec3(-2, 2, 0.01)
         rm_pose[2].p = gymapi.Vec3(2, -2, 0.01)
         rm_pose[3].p = gymapi.Vec3(2, 2, 0.01)

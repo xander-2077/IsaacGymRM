@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import sys
 from pprint import pprint
-sys.path.append('/home/xander/Codes/IsaacGym/IsaacGymRM/')
+sys.path.append('./')
 from isaacgymrm.env import RoboMasterEnv
 
 
@@ -48,7 +48,7 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 0.0026  # 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 16
+    num_envs: int = 1024
     """the number of parallel game environments"""
     num_steps: int = 16  # 2048
     """the number of steps to run in each environment per policy rollout"""
@@ -95,7 +95,7 @@ class Args:
     headless = True
     max_episode_length = 500
     control_freq_inv = 5
-    asset_root = '/home/xander/Codes/IsaacGym/IsaacGymRM/assets'
+    asset_root = './assets'
 
     reward_scoring = 1000
     reward_conceding = 1000

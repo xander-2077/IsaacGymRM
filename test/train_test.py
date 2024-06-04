@@ -22,7 +22,7 @@ parser.add_argument('--compute_device_id', default=0, type=int)
 parser.add_argument(
     '--graphics_device_id', type=int, default=0, help='Graphics Device ID'
 )
-parser.add_argument('--num_env', default=16, type=int)
+parser.add_argument('--num_env', default=1024, type=int)
 parser.add_argument('--num_agent', type=int, default=2)
 parser.add_argument('--headless', default=False, action='store_true')
 
@@ -67,6 +67,7 @@ if __name__ == '__main__':
     while True:
         env.step(action)
         step += 1
+        print('1')
         # if step % 100 == 0:
         #     env.reset_idx()
 

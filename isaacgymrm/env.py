@@ -83,6 +83,7 @@ class RoboMasterEnv:
         sim_params.physx.num_velocity_iterations = 1  # default: 1
         sim_params.physx.rest_offset = 0.001
         sim_params.physx.contact_offset = 0.02
+        sim_params.physx.max_gpu_contact_pairs = 2920898
 
         self.dt = sim_params.dt
         self.sim = self.gym.create_sim(
@@ -257,8 +258,6 @@ class RoboMasterEnv:
                     sys.exit()
                 elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
-
-            self.gym.fetch_results(self.sim, True)
 
             if self.enable_viewer_sync:
                 self.gym.step_graphics(self.sim)
@@ -494,6 +493,7 @@ class RoboMasterEnv:
 
         for _ in range(self.args.control_freq_inv):
             self.gym.simulate(self.sim)
+            self.gym.fetch_results(self.sim, True)
             self.render()
         
         self.post_physics_step()

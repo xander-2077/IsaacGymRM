@@ -6,7 +6,7 @@ import numpy as np
 
 import sys
 sys.path.append('.')
-from isaacgymrm.env import RoboMasterEnv
+from isaacgymrm.env.env import RoboMasterEnv
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', default=None, type=str)

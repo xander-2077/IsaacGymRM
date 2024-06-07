@@ -5,7 +5,7 @@ from pprint import pprint
 
 import sys
 sys.path.append('/home/xander/Codes/IsaacGym/IsaacGymRM/')
-from isaacgymrm.env import RoboMasterEnv
+from isaacgymrm.env.env import RoboMasterEnv
 import torch
 
 from isaacgymrm.algo.ppo.PPO_isaacgym_CleanRL import Args, RecordEpisodeStatisticsTorch, Agent

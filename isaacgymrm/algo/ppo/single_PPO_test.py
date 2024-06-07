@@ -10,7 +10,7 @@ from pathlib import Path
 import math
 import torch
 
-from env import Soccer
+from isaacgymrm.env.env import Soccer
 from utils.gpu_manager import *
 
 

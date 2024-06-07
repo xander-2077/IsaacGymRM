@@ -21,7 +21,7 @@ import sys
 from pprint import pprint
 sys.path.append('./')
 sys.path.append('./')
-from isaacgymrm.env import RoboMasterEnv
+from isaacgymrm.env.env import RoboMasterEnv
 
 
 @dataclass

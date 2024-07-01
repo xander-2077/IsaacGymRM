@@ -50,7 +50,7 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4  # 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1024
+    num_envs: int = 16
     """the number of parallel game environments"""
     num_steps: int = 16  # 2048
     """the number of steps to run in each environment per policy rollout"""
@@ -97,7 +97,6 @@ class Args:
     headless = True
     max_episode_length = 500
     control_freq_inv = 5
-    asset_root = './assets'
     asset_root = './assets'
 
     reward_scoring = 1000
